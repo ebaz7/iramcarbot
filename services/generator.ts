@@ -569,6 +569,7 @@ RED='\\033[0;31m'
 GREEN='\\033[0;32m'
 YELLOW='\\033[1;33m'
 BLUE='\\033[0;34m'
+CYAN='\\033[0;36m'
 NC='\\033[0m'
 
 DIR="/opt/telegram-car-bot"
@@ -576,40 +577,63 @@ SERVICE_NAME="carbot.service"
 DATA_FILE="bot_data.json"
 CONFIG_FILE="config.env"
 
-function check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        echo -e "\${RED}Please run as root (sudo bash install.sh)\${NC}"
-        exit
-    fi
+# Ensure we are running as root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "\${RED}Please run as root (sudo bash install.sh)\${NC}"
+    exit
+fi
+
+function show_logo() {
+    clear
+    echo -e "\${CYAN}"
+    echo "  ____            ____       _     "
+    echo " / ___|__ _ _ __ | __ )  ___| |_   "
+    echo "| |   / _\` | '__||  _ \\ / _ \\ __|  "
+    echo "| |__| (_| | |   | |_) | (_) | |_   "
+    echo " \\____\\__,_|_|   |____/ \\___/ \\__|  "
+    echo "                                    "
+    echo -e "\${NC}"
+    echo -e "\${BLUE}Telegram Bot Manager V2.0\${NC}"
+    echo -e "-----------------------------------"
 }
 
 function install_dependencies() {
     echo -e "\${BLUE}[INFO] Installing system dependencies...\${NC}"
-    apt-get update -y
-    apt-get install -y python3 python3-pip python3-venv zip unzip
+    apt-get update -y > /dev/null 2>&1
+    apt-get install -y python3 python3-pip python3-venv zip unzip git > /dev/null 2>&1
+    echo -e "\${GREEN}✓ Dependencies installed.\${NC}"
 }
 
 function install_bot() {
+    show_logo
     echo -e "\${GREEN}>>> INSTALLATION WIZARD <<<\${NC}"
     
+    # Credentials
     read -p "Enter Telegram Bot Token: " BOT_TOKEN
     read -p "Enter Main Admin (Owner) Numeric ID: " ADMIN_ID
-    read -p "Enter Backup Username: " BACKUP_USER
-    read -p "Enter Backup Password: " BACKUP_PASS
-
-    mkdir -p "\$DIR"
+    
+    # Create Directory
+    if [ ! -d "\$DIR" ]; then
+        mkdir -p "\$DIR"
+    fi
     cd "\$DIR"
 
+    # Virtual Env
     if [ ! -d "venv" ]; then
         echo -e "\${BLUE}[INFO] Creating Python virtual environment...\${NC}"
         python3 -m venv venv
     fi
+    
+    echo -e "\${BLUE}[INFO] Installing Python libraries...\${NC}"
     source venv/bin/activate
-    # Install Pandas and OpenPyXL for Excel support
-    pip install python-telegram-bot jdatetime pandas openpyxl
-
+    pip install -q python-telegram-bot jdatetime pandas openpyxl
+    
+    # Generate bot.py if needed, or stick with current one
+    # Note: If running via curl pipe, we need to create bot.py
+    # If running from cloned repo, we might have it.
+    
     if [ -f "bot.py" ]; then
-        echo -e "\${YELLOW}[INFO] bot.py found. Skipping generation (using repository version).\${NC}"
+        echo -e "\${YELLOW}[INFO] Existing bot.py found. Keeping it.\${NC}"
     else
         echo -e "\${BLUE}[INFO] Generating bot code...\${NC}"
         cat << 'EOF' > bot.py
@@ -617,6 +641,7 @@ ${pythonContent}
 EOF
     fi
 
+    # Replace Tokens
     if [ ! -z "\$BOT_TOKEN" ]; then
         sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
     fi
@@ -624,10 +649,8 @@ EOF
         sed -i "s/REPLACE_ME_ADMIN_ID/\$ADMIN_ID/g" bot.py
     fi
 
-    echo "BACKUP_USER=\$BACKUP_USER" > \$CONFIG_FILE
-    echo "BACKUP_PASS=\$BACKUP_PASS" >> \$CONFIG_FILE
-    chmod 600 \$CONFIG_FILE
-
+    # Service
+    echo -e "\${BLUE}[INFO] Creating Systemd Service...\${NC}"
     cat <<EOF > /etc/systemd/system/\$SERVICE_NAME
 [Unit]
 Description=Telegram Car Price Bot
@@ -648,104 +671,53 @@ EOF
     systemctl enable \$SERVICE_NAME
     systemctl restart \$SERVICE_NAME
 
-    echo -e "\${GREEN}✅ Installation Complete!\${NC}"
-    read
+    echo -e "\n\${GREEN}====================================\${NC}"
+    echo -e "\${GREEN}   ✅ INSTALLATION COMPLETE!       \${NC}"
+    echo -e "\${GREEN}====================================\${NC}"
+    echo -e "Bot is running. Use 'systemctl status \$SERVICE_NAME' to check."
+    read -p "Press Enter to continue..."
 }
 
-function update_bot() {
-    echo -e "\${BLUE}[INFO] Updating Bot Code...\${NC}"
-    if [ ! -d "\$DIR" ]; then
-        echo -e "\${RED}Bot is not installed.\${NC}"
-        sleep 2
-        return
-    fi
-    
-    cd "\$DIR"
-    cp \$DATA_FILE "\$DATA_FILE.bak" 2>/dev/null
-
-    # If bot.py exists (likely from git pull), we ask user or just keep it.
-    # But this update function is usually for updating the script itself if used standalone.
-    # Since we use git mostly now, this might just restart service.
-    
-    echo -e "\${YELLOW}⚠️  Re-entering credentials recommended.\${NC}"
-    read -p "Enter Telegram Bot Token (Empty to skip): " BOT_TOKEN
-    read -p "Enter Main Admin Numeric ID (Empty to skip): " ADMIN_ID
-    
-    if [ ! -z "\$BOT_TOKEN" ]; then
-        sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
-    fi
-    if [ ! -z "\$ADMIN_ID" ]; then
-        sed -i "s/REPLACE_ME_ADMIN_ID/\$ADMIN_ID/g" bot.py
-    fi
-
-    source venv/bin/activate
-    pip install pandas openpyxl 
-    
-    systemctl restart \$SERVICE_NAME
-    echo -e "\${GREEN}✅ Update Complete.\${NC}"
-    read -p "Press Enter..."
+function menu() {
+    while true; do
+        show_logo
+        echo "1) Install / Reinstall Bot"
+        echo "2) Update Bot (git pull)"
+        echo "3) Restart Service"
+        echo "4) Uninstall"
+        echo "0) Exit"
+        echo ""
+        read -p "Select option: " choice
+        
+        case \$choice in
+            1) install_dependencies; install_bot ;;
+            2) 
+               cd "\$DIR"
+               git pull
+               systemctl restart \$SERVICE_NAME
+               echo -e "\${GREEN}Updated.\${NC}"
+               sleep 2
+               ;;
+            3)
+               systemctl restart \$SERVICE_NAME
+               echo -e "\${GREEN}Service Restarted.\${NC}"
+               sleep 2
+               ;;
+            4)
+               systemctl stop \$SERVICE_NAME
+               systemctl disable \$SERVICE_NAME
+               rm /etc/systemd/system/\$SERVICE_NAME
+               rm -rf "\$DIR"
+               echo -e "\${RED}Uninstalled.\${NC}"
+               sleep 2
+               ;;
+            0) exit 0 ;;
+            *) echo -e "\${RED}Invalid option\${NC}"; sleep 1 ;;
+        esac
+    done
 }
 
-function restore_backup() {
-    echo -e "\${BLUE}>>> RESTORE BACKUP <<<\${NC}"
-    read -p "Enter path to backup file: " BACKUP_PATH
-    if [ ! -f "\$BACKUP_PATH" ]; then
-        echo -e "\${RED}File not found!\${NC}"
-        return
-    fi
-    cp "\$BACKUP_PATH" "\$DIR/\$DATA_FILE"
-    systemctl restart \$SERVICE_NAME
-    echo -e "\${GREEN}✅ Restored.\${NC}"
-    read -p "Press Enter..."
-}
-
-function setup_backup() {
-    echo -e "\${BLUE}>>> BACKUP SCHEDULER <<<\${NC}"
-    echo "1. Hourly"
-    echo "2. Daily"
-    echo "3. Monthly"
-    read -p "Select: " opt
-    CRON_CMD="cd \$DIR && zip -r backup_\\$(date +\\%F_\\%H).zip \$DATA_FILE"
-    
-    case \$opt in
-        1) (crontab -l 2>/dev/null; echo "0 * * * * \$CRON_CMD") | crontab - ;;
-        2) (crontab -l 2>/dev/null; echo "0 0 * * * \$CRON_CMD") | crontab - ;;
-        3) (crontab -l 2>/dev/null; echo "0 0 1 * * \$CRON_CMD") | crontab - ;;
-    esac
-    echo -e "\${GREEN}Scheduled.\${NC}"
-    sleep 2
-}
-
-function delete_bot() {
-    read -p "Delete everything? (y/N): " confirm
-    if [[ "\$confirm" == "y" ]]; then
-        systemctl stop \$SERVICE_NAME
-        systemctl disable \$SERVICE_NAME
-        rm /etc/systemd/system/\$SERVICE_NAME
-        rm -rf "\$DIR"
-        echo -e "\${GREEN}Deleted.\${NC}"
-    fi
-    sleep 2
-}
-
-check_root
-while true; do
-    clear
-    echo "1. Install"
-    echo "2. Update"
-    echo "3. Restore"
-    echo "4. Backup"
-    echo "5. Delete"
-    echo "0. Exit"
-    read -p "Choice: " choice
-    case \$choice in
-        1) install_dependencies; install_bot ;;
-        2) update_bot ;;
-        3) restore_backup ;;
-        4) setup_backup ;;
-        5) delete_bot ;;
-        0) exit 0 ;;
-    esac
-done
+# If arguments are passed, we could handle them, otherwise show menu
+menu
 `;
 };

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import TelegramMock from './components/TelegramMock';
 import { generateBashScript, generatePythonCode } from './services/generator';
-import { Terminal, Code, Play, Check, Copy, Info, Download, GitBranch } from 'lucide-react';
+import { Terminal, Code, Play, Check, Copy, Info, Download, GitBranch, Server, AlertTriangle } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { CAR_DB } from './constants';
 
@@ -80,14 +80,26 @@ export default function App() {
     }
   };
 
-  const getRepoName = (url: string) => {
+  // Helper to convert standard GitHub URL to Raw version for the one-liner
+  const getOneLiner = (url: string) => {
       try {
-          const parts = url.split('/');
-          let name = parts[parts.length - 1];
-          if (name.endsWith('.git')) name = name.slice(0, -4);
-          return name || 'iramcarbot';
+          // Remove .git suffix
+          let cleanUrl = url.endsWith('.git') ? url.slice(0, -4) : url;
+          // Remove trailing slash
+          if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
+          
+          const parts = cleanUrl.split('/');
+          // Expecting https://github.com/User/Repo
+          if (parts.length >= 5) {
+              const user = parts[parts.length - 2];
+              const repo = parts[parts.length - 1];
+              // Construct raw url (assuming main branch)
+              const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/main/install.sh`;
+              return `bash <(curl -Ls ${rawUrl})`;
+          }
+          return "# خطا در تشخیص آدرس گیت‌هاب";
       } catch {
-          return 'iramcarbot';
+          return "# لینک گیت‌هاب معتبر نیست";
       }
   };
 
@@ -129,57 +141,59 @@ export default function App() {
           </div>
         );
       case Tab.BASH:
-        const repoName = getRepoName(repoUrl);
-        const installCommands = `sudo apt-get update && sudo apt-get install -y git
-git clone ${repoUrl}
-cd ${repoName}
-chmod +x install.sh
-bash install.sh`;
+        const oneLiner = getOneLiner(repoUrl);
 
         return (
            <div className="h-full overflow-hidden flex flex-col p-4 space-y-4 overflow-y-auto">
             
-            {/* GitHub Section */}
-            <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-lg">
+            {/* One-Liner Section */}
+            <div className="bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 rounded-xl p-5 shadow-2xl">
                 <h3 className="text-white font-bold text-lg mb-3 flex items-center gap-2">
-                    <GitBranch className="text-green-400" />
-                    راهنمای نصب از گیت‌هاب
+                    <Server className="text-blue-400" />
+                    نصب سریع (One-Liner)
                 </h3>
-                <p className="text-gray-400 text-sm mb-4">
-                    دستورات زیر را کپی کرده و در ترمینال سرور خود اجرا کنید تا ربات دانلود و نصب شود:
-                </p>
                 
-                <div className="bg-black rounded-lg p-4 relative group border border-slate-800">
-                    <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed">{installCommands}</pre>
+                <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg mb-4 flex gap-3 items-start">
+                    <AlertTriangle className="text-yellow-500 shrink-0 mt-1" size={18} />
+                    <p className="text-yellow-200 text-xs leading-relaxed">
+                        برای استفاده از دستور زیر، ابتدا فایل <code>install.sh</code> پایین صفحه را دانلود کرده و در مخزن گیت‌هاب خود (شاخه main) آپلود کنید.
+                    </p>
+                </div>
+
+                <div className="mt-2 mb-4 flex flex-col gap-2">
+                     <label className="text-gray-400 text-xs">آدرس مخزن گیت‌هاب شما:</label>
+                     <input 
+                        type="text" 
+                        value={repoUrl}
+                        onChange={(e) => setRepoUrl(e.target.value)}
+                        className="bg-black/30 text-white text-sm px-3 py-2 rounded border border-slate-600 w-full focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                     />
+                </div>
+                
+                <div className="bg-black rounded-lg p-4 relative group border border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]">
+                    <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed break-all">{oneLiner}</pre>
                     <button 
-                        onClick={() => copyToClipboard(installCommands)}
+                        onClick={() => copyToClipboard(oneLiner)}
                         className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
-                        title="کپی دستورات"
+                        title="کپی دستور"
                     >
                          {copied ? <Check size={16} /> : <Copy size={16} />}
                          <span className="text-xs">کپی</span>
                     </button>
                 </div>
-                
-                <div className="mt-4 flex flex-col gap-2">
-                     <label className="text-gray-500 text-xs">آدرس مخزن گیت‌هاب شما:</label>
-                     <input 
-                        type="text" 
-                        value={repoUrl}
-                        onChange={(e) => setRepoUrl(e.target.value)}
-                        className="bg-slate-800 text-gray-300 text-sm px-3 py-2 rounded border border-slate-600 w-full focus:outline-none focus:border-blue-500 transition-colors"
-                     />
-                </div>
+                <p className="text-gray-500 text-[10px] mt-2 text-center">
+                    این دستور را در ترمینال سرور (لینوکس) کپی و اجرا کنید.
+                </p>
             </div>
 
             {/* Manual Script Section */}
             <div className="flex-1 flex flex-col min-h-[300px]">
                 <div className="bg-gray-800 text-gray-200 p-2 text-sm flex justify-between items-center rounded-t-lg">
-                    <span>محتوای install.sh (جهت بررسی یا آپلود)</span>
+                    <span className="flex items-center gap-2"><Code size={14}/> فایل install.sh (جهت آپلود در گیت‌هاب)</span>
                     <div className="flex gap-2">
                         <button 
                         onClick={() => downloadFile("install.sh", generateBashScript())}
-                        className="flex items-center gap-1 bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded text-white transition-colors"
+                        className="flex items-center gap-1 bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded text-white transition-colors text-xs font-bold shadow-md"
                         title="دانلود فایل نصب"
                         >
                         <Download size={14} /> دانلود فایل
@@ -189,11 +203,10 @@ bash install.sh`;
                         className="flex items-center gap-1 hover:text-white transition-colors"
                         >
                         {copied ? <Check size={14} /> : <Copy size={14} />}
-                        {copied ? "کپی" : "کپی"}
                         </button>
                     </div>
                 </div>
-                <pre className="flex-1 bg-[#1e1e1e] text-gray-400 p-4 overflow-auto text-xs md:text-sm font-mono rounded-b-lg">
+                <pre className="flex-1 bg-[#1e1e1e] text-gray-400 p-4 overflow-auto text-xs md:text-sm font-mono rounded-b-lg border-x border-b border-gray-700">
                 <code>{generateBashScript()}</code>
                 </pre>
             </div>
