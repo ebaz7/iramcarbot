@@ -608,13 +608,21 @@ function install_bot() {
     # Install Pandas and OpenPyXL for Excel support
     pip install python-telegram-bot jdatetime pandas openpyxl
 
-    echo -e "\${BLUE}[INFO] Generating bot code...\${NC}"
-    cat << 'EOF' > bot.py
+    if [ -f "bot.py" ]; then
+        echo -e "\${YELLOW}[INFO] bot.py found. Skipping generation (using repository version).\${NC}"
+    else
+        echo -e "\${BLUE}[INFO] Generating bot code...\${NC}"
+        cat << 'EOF' > bot.py
 ${pythonContent}
 EOF
+    fi
 
-    sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
-    sed -i "s/REPLACE_ME_ADMIN_ID/\$ADMIN_ID/g" bot.py
+    if [ ! -z "\$BOT_TOKEN" ]; then
+        sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
+    fi
+    if [ ! -z "\$ADMIN_ID" ]; then
+        sed -i "s/REPLACE_ME_ADMIN_ID/\$ADMIN_ID/g" bot.py
+    fi
 
     echo "BACKUP_USER=\$BACKUP_USER" > \$CONFIG_FILE
     echo "BACKUP_PASS=\$BACKUP_PASS" >> \$CONFIG_FILE
@@ -655,9 +663,9 @@ function update_bot() {
     cd "\$DIR"
     cp \$DATA_FILE "\$DATA_FILE.bak" 2>/dev/null
 
-    cat << 'EOF' > bot.py
-${pythonContent}
-EOF
+    # If bot.py exists (likely from git pull), we ask user or just keep it.
+    # But this update function is usually for updating the script itself if used standalone.
+    # Since we use git mostly now, this might just restart service.
     
     echo -e "\${YELLOW}⚠️  Re-entering credentials recommended.\${NC}"
     read -p "Enter Telegram Bot Token (Empty to skip): " BOT_TOKEN
@@ -671,7 +679,7 @@ EOF
     fi
 
     source venv/bin/activate
-    pip install pandas openpyxl # Ensure new deps are installed on update
+    pip install pandas openpyxl 
     
     systemctl restart \$SERVICE_NAME
     echo -e "\${GREEN}✅ Update Complete.\${NC}"

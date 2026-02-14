@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import TelegramMock from './components/TelegramMock';
 import { generateBashScript, generatePythonCode } from './services/generator';
-import { Terminal, Code, Play, Check, Copy, Info } from 'lucide-react';
+import { Terminal, Code, Play, Check, Copy, Info, Download, GitBranch } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { CAR_DB } from './constants';
 
@@ -17,11 +17,22 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [analysis, setAnalysis] = useState<string>("");
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+  const [repoUrl, setRepoUrl] = useState("https://github.com/ebaz7/iramcarbot.git");
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const downloadFile = (filename: string, content: string) => {
+    const element = document.createElement("a");
+    const file = new Blob([content], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = filename;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
   };
 
   const handleAnalyzeMarket = async () => {
@@ -69,6 +80,17 @@ export default function App() {
     }
   };
 
+  const getRepoName = (url: string) => {
+      try {
+          const parts = url.split('/');
+          let name = parts[parts.length - 1];
+          if (name.endsWith('.git')) name = name.slice(0, -4);
+          return name || 'iramcarbot';
+      } catch {
+          return 'iramcarbot';
+      }
+  };
+
   const renderContent = () => {
     switch(activeTab) {
       case Tab.SIMULATOR:
@@ -84,13 +106,22 @@ export default function App() {
           <div className="h-full overflow-hidden flex flex-col">
             <div className="bg-gray-800 text-gray-200 p-2 text-sm flex justify-between items-center rounded-t-lg">
                 <span>bot.py</span>
-                <button 
-                  onClick={() => copyToClipboard(generatePythonCode())}
-                  className="flex items-center gap-1 hover:text-white transition-colors"
-                >
-                  {copied ? <Check size={14} /> : <Copy size={14} />}
-                  {copied ? "Copied" : "Copy"}
-                </button>
+                <div className="flex gap-2">
+                    <button 
+                      onClick={() => downloadFile("bot.py", generatePythonCode())}
+                      className="flex items-center gap-1 hover:text-white transition-colors"
+                      title="دانلود فایل پایتون"
+                    >
+                      <Download size={14} />
+                    </button>
+                    <button 
+                      onClick={() => copyToClipboard(generatePythonCode())}
+                      className="flex items-center gap-1 hover:text-white transition-colors"
+                    >
+                      {copied ? <Check size={14} /> : <Copy size={14} />}
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                </div>
             </div>
             <pre className="flex-1 bg-[#1e1e1e] text-blue-300 p-4 overflow-auto text-xs md:text-sm font-mono rounded-b-lg">
               <code>{generatePythonCode()}</code>
@@ -98,21 +129,74 @@ export default function App() {
           </div>
         );
       case Tab.BASH:
+        const repoName = getRepoName(repoUrl);
+        const installCommands = `sudo apt-get update && sudo apt-get install -y git
+git clone ${repoUrl}
+cd ${repoName}
+chmod +x install.sh
+bash install.sh`;
+
         return (
-           <div className="h-full overflow-hidden flex flex-col">
-            <div className="bg-gray-800 text-gray-200 p-2 text-sm flex justify-between items-center rounded-t-lg">
-                <span>install.sh</span>
-                <button 
-                  onClick={() => copyToClipboard(generateBashScript())}
-                  className="flex items-center gap-1 hover:text-white transition-colors"
-                >
-                  {copied ? <Check size={14} /> : <Copy size={14} />}
-                  {copied ? "Copied" : "Copy"}
-                </button>
+           <div className="h-full overflow-hidden flex flex-col p-4 space-y-4 overflow-y-auto">
+            
+            {/* GitHub Section */}
+            <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-lg">
+                <h3 className="text-white font-bold text-lg mb-3 flex items-center gap-2">
+                    <GitBranch className="text-green-400" />
+                    راهنمای نصب از گیت‌هاب
+                </h3>
+                <p className="text-gray-400 text-sm mb-4">
+                    دستورات زیر را کپی کرده و در ترمینال سرور خود اجرا کنید تا ربات دانلود و نصب شود:
+                </p>
+                
+                <div className="bg-black rounded-lg p-4 relative group border border-slate-800">
+                    <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed">{installCommands}</pre>
+                    <button 
+                        onClick={() => copyToClipboard(installCommands)}
+                        className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
+                        title="کپی دستورات"
+                    >
+                         {copied ? <Check size={16} /> : <Copy size={16} />}
+                         <span className="text-xs">کپی</span>
+                    </button>
+                </div>
+                
+                <div className="mt-4 flex flex-col gap-2">
+                     <label className="text-gray-500 text-xs">آدرس مخزن گیت‌هاب شما:</label>
+                     <input 
+                        type="text" 
+                        value={repoUrl}
+                        onChange={(e) => setRepoUrl(e.target.value)}
+                        className="bg-slate-800 text-gray-300 text-sm px-3 py-2 rounded border border-slate-600 w-full focus:outline-none focus:border-blue-500 transition-colors"
+                     />
+                </div>
             </div>
-            <pre className="flex-1 bg-[#1e1e1e] text-green-400 p-4 overflow-auto text-xs md:text-sm font-mono rounded-b-lg">
-              <code>{generateBashScript()}</code>
-            </pre>
+
+            {/* Manual Script Section */}
+            <div className="flex-1 flex flex-col min-h-[300px]">
+                <div className="bg-gray-800 text-gray-200 p-2 text-sm flex justify-between items-center rounded-t-lg">
+                    <span>محتوای install.sh (جهت بررسی یا آپلود)</span>
+                    <div className="flex gap-2">
+                        <button 
+                        onClick={() => downloadFile("install.sh", generateBashScript())}
+                        className="flex items-center gap-1 bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded text-white transition-colors"
+                        title="دانلود فایل نصب"
+                        >
+                        <Download size={14} /> دانلود فایل
+                        </button>
+                        <button 
+                        onClick={() => copyToClipboard(generateBashScript())}
+                        className="flex items-center gap-1 hover:text-white transition-colors"
+                        >
+                        {copied ? <Check size={14} /> : <Copy size={14} />}
+                        {copied ? "کپی" : "کپی"}
+                        </button>
+                    </div>
+                </div>
+                <pre className="flex-1 bg-[#1e1e1e] text-gray-400 p-4 overflow-auto text-xs md:text-sm font-mono rounded-b-lg">
+                <code>{generateBashScript()}</code>
+                </pre>
+            </div>
           </div>
         );
       case Tab.ANALYSIS:
