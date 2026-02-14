@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import TelegramMock from './components/TelegramMock';
 import { generateBashScript, generatePythonCode } from './services/generator';
-import { Terminal, Code, Play, Check, Copy, Info, Download, GitBranch, Server, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Terminal, Code, Play, Check, Copy, Info, Download, GitBranch, Server, AlertTriangle, ExternalLink, Globe, UploadCloud, ArrowRight, ShieldCheck, XCircle } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { CAR_DB } from './constants';
 
@@ -12,13 +12,18 @@ enum Tab {
   ANALYSIS
 }
 
+type UrlStatus = 'idle' | 'checking' | 'success' | 'error' | 'invalid';
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>(Tab.SIMULATOR);
+  const [activeTab, setActiveTab] = useState<Tab>(Tab.BASH); // Default to BASH to show instructions first
   const [copied, setCopied] = useState(false);
   const [analysis, setAnalysis] = useState<string>("");
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
-  const [repoUrl, setRepoUrl] = useState("https://github.com/ebaz7/iramcarbot.git");
-  const [branch, setBranch] = useState("main"); // Default branch
+  
+  // Repo Config
+  const [repoUrl, setRepoUrl] = useState("https://github.com/ebaz7/iramcarbot");
+  const [branch, setBranch] = useState("main");
+  const [urlStatus, setUrlStatus] = useState<UrlStatus>('idle');
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -85,13 +90,11 @@ export default function App() {
   const getRawUrl = (url: string, branchName: string): string | null => {
       try {
           let cleanUrl = url.trim();
-          // Remove .git suffix
           if (cleanUrl.endsWith('.git')) cleanUrl = cleanUrl.slice(0, -4);
-          // Remove trailing slash
           if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
           
           const parts = cleanUrl.split('/');
-          // Expecting https://github.com/User/Repo
+          // Valid: https://github.com/User/Repo
           if (parts.length >= 5) {
               const user = parts[parts.length - 2];
               const repo = parts[parts.length - 1];
@@ -101,6 +104,27 @@ export default function App() {
       } catch {
           return null;
       }
+  };
+
+  const checkUrlConnection = async () => {
+    const raw = getRawUrl(repoUrl, branch);
+    if (!raw) {
+        setUrlStatus('invalid');
+        return;
+    }
+    setUrlStatus('checking');
+    try {
+        const res = await fetch(raw, { method: 'HEAD' });
+        if (res.ok) {
+            setUrlStatus('success');
+        } else {
+            setUrlStatus('error');
+        }
+    } catch (e) {
+        // Fallback for CORS issues or network errors, assume error or ask user to click
+        // Assuming 404 if fetch fails in typical browser environment for public github raw
+        setUrlStatus('error');
+    }
   };
 
   const renderContent = () => {
@@ -131,7 +155,7 @@ export default function App() {
                       className="flex items-center gap-1 hover:text-white transition-colors"
                     >
                       {copied ? <Check size={14} /> : <Copy size={14} />}
-                      {copied ? "Copied" : "Copy"}
+                      {copied ? "کپی شد" : "کپی"}
                     </button>
                 </div>
             </div>
@@ -142,99 +166,154 @@ export default function App() {
         );
       case Tab.BASH:
         const rawUrl = getRawUrl(repoUrl, branch);
-        const oneLiner = rawUrl ? `bash <(curl -Ls ${rawUrl})` : "# لینک گیت‌هاب معتبر نیست";
+        const oneLiner = rawUrl ? `bash <(curl -Ls ${rawUrl})` : "# آدرس گیت‌هاب معتبر نیست";
 
         return (
-           <div className="h-full overflow-hidden flex flex-col p-4 space-y-4 overflow-y-auto">
+           <div className="h-full overflow-hidden flex flex-col p-4 md:p-6 overflow-y-auto bg-slate-50">
             
-            {/* One-Liner Section */}
-            <div className="bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 rounded-xl p-5 shadow-2xl">
-                <h3 className="text-white font-bold text-lg mb-3 flex items-center gap-2">
-                    <Server className="text-blue-400" />
-                    نصب سریع (One-Liner)
-                </h3>
-                
-                <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg mb-4 flex gap-3 items-start">
-                    <AlertTriangle className="text-yellow-500 shrink-0 mt-1" size={18} />
-                    <div className="text-yellow-200 text-xs leading-relaxed">
-                        <p>برای رفع ارور <b>404</b>، حتما قبل از اجرا روی دکمه آبی <b>"تست لینک"</b> کلیک کنید.</p>
-                        <p className="mt-1 opacity-70">اگر مرورگر ارور داد، یعنی فایل هنوز در گیت‌هاب آپلود نشده یا Private است.</p>
-                    </div>
+            <div className="max-w-4xl mx-auto w-full space-y-8 pb-10">
+                <div className="text-center mb-6">
+                    <h2 className="text-2xl font-black text-gray-800 mb-2">🚀 راهنمای نصب ربات (بدون ارور ۴۰۴)</h2>
+                    <p className="text-gray-500 text-sm">لطفاً مراحل زیر را **به ترتیب** انجام دهید تا روی سرور به مشکل نخورید.</p>
                 </div>
 
-                <div className="mt-2 mb-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                     <div className="md:col-span-2">
-                         <label className="text-gray-400 text-xs mb-1 block">آدرس مخزن گیت‌هاب:</label>
-                         <input 
-                            type="text" 
-                            value={repoUrl}
-                            onChange={(e) => setRepoUrl(e.target.value)}
-                            className="bg-black/30 text-white text-sm px-3 py-2 rounded border border-slate-600 w-full focus:outline-none focus:border-blue-500 transition-colors font-mono ltr"
-                         />
-                     </div>
-                     <div>
-                         <label className="text-gray-400 text-xs mb-1 block">شاخه (Branch):</label>
-                         <select 
-                            value={branch}
-                            onChange={(e) => setBranch(e.target.value)}
-                            className="bg-black/30 text-white text-sm px-3 py-2 rounded border border-slate-600 w-full focus:outline-none focus:border-blue-500 transition-colors"
-                         >
-                             <option value="main">main</option>
-                             <option value="master">master</option>
-                         </select>
-                     </div>
-                     <div>
-                        <a 
-                           href={rawUrl || '#'} 
-                           target="_blank" 
-                           rel="noopener noreferrer"
-                           className={`flex items-center justify-center gap-2 w-full px-3 py-2 rounded font-bold text-sm transition-all shadow-lg ${
-                               rawUrl 
-                               ? 'bg-blue-600 hover:bg-blue-500 text-white hover:scale-105' 
-                               : 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                           }`}
-                        >
-                           <ExternalLink size={16} /> تست لینک
-                        </a>
-                     </div>
-                </div>
-                
-                <div className="bg-black rounded-lg p-4 relative group border border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]">
-                    <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed break-all" dir="ltr">{oneLiner}</pre>
-                    <button 
-                        onClick={() => copyToClipboard(oneLiner)}
-                        className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
-                        title="کپی دستور"
-                    >
-                         {copied ? <Check size={16} /> : <Copy size={16} />}
-                         <span className="text-xs">کپی</span>
-                    </button>
-                </div>
-            </div>
-
-            {/* Manual Script Section */}
-            <div className="flex-1 flex flex-col min-h-[300px]">
-                <div className="bg-gray-800 text-gray-200 p-2 text-sm flex justify-between items-center rounded-t-lg">
-                    <span className="flex items-center gap-2"><Code size={14}/> فایل install.sh (نسخه لودر)</span>
-                    <div className="flex gap-2">
+                {/* Step 1: Download */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 bg-blue-100 text-blue-800 px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۱</div>
+                    <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-4">
+                        <Download className="text-blue-600" /> دانلود فایل‌ها
+                    </h3>
+                    <p className="text-gray-600 text-sm mb-4">
+                        ابتدا فایل‌های زیر را دانلود کنید. (ما کدها را برای شما آماده کرده‌ایم)
+                    </p>
+                    <div className="flex flex-wrap gap-3">
                         <button 
-                        onClick={() => downloadFile("install.sh", generateBashScript(repoUrl))}
-                        className="flex items-center gap-1 bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded text-white transition-colors text-xs font-bold shadow-md"
-                        title="دانلود فایل نصب"
+                            onClick={() => downloadFile("bot.py", generatePythonCode())}
+                            className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 px-4 py-3 rounded-lg text-gray-800 transition-colors font-mono text-sm"
                         >
-                        <Download size={14} /> دانلود فایل
+                            <Download size={16} /> bot.py
                         </button>
                         <button 
-                        onClick={() => copyToClipboard(generateBashScript(repoUrl))}
-                        className="flex items-center gap-1 hover:text-white transition-colors"
+                            onClick={() => downloadFile("install.sh", generateBashScript(repoUrl))}
+                            className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 px-4 py-3 rounded-lg text-gray-800 transition-colors font-mono text-sm"
                         >
-                        {copied ? <Check size={14} /> : <Copy size={14} />}
+                            <Download size={16} /> install.sh
                         </button>
                     </div>
                 </div>
-                <pre className="flex-1 bg-[#1e1e1e] text-gray-400 p-4 overflow-auto text-xs md:text-sm font-mono rounded-b-lg border-x border-b border-gray-700">
-                <code>{generateBashScript(repoUrl)}</code>
-                </pre>
+
+                {/* Step 2: Upload */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 bg-blue-100 text-blue-800 px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۲</div>
+                    <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-4">
+                        <UploadCloud className="text-purple-600" /> آپلود در گیت‌هاب
+                    </h3>
+                    <div className="bg-yellow-50 border-r-4 border-yellow-400 p-4 mb-4">
+                        <p className="text-yellow-800 text-sm font-medium">
+                            ⚠️ دلیل ارور 404 شما اینجاست!
+                        </p>
+                        <p className="text-yellow-700 text-xs mt-1">
+                            سرور لینوکس نمی‌تواند فایلی که وجود ندارد را بخواند. شما باید فایل‌های دانلود شده در مرحله قبل را در مخزن گیت‌هاب خود آپلود کنید.
+                        </p>
+                    </div>
+                    <ul className="text-sm text-gray-600 space-y-2 list-disc list-inside">
+                        <li>به اکانت GitHub خود بروید.</li>
+                        <li>یک مخزن (Repository) جدید بسازید (حتما <b>Public</b> باشد).</li>
+                        <li>دو فایل <code>bot.py</code> و <code>install.sh</code> را در آن آپلود کنید (Drag & Drop).</li>
+                        <li>مطمئن شوید نام فایل‌ها دقیقا همین باشد (حروف کوچک).</li>
+                    </ul>
+                </div>
+
+                {/* Step 3: Verify */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden ring-2 ring-blue-500/20">
+                    <div className="absolute top-0 right-0 bg-blue-600 text-white px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۳ (مهم)</div>
+                    <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-4">
+                        <Globe className="text-green-600" /> بررسی و دریافت لینک
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                         <div>
+                             <label className="text-gray-500 text-xs mb-1 block font-bold">آدرس مخزن شما (لینک صفحه اصلی ریپو):</label>
+                             <input 
+                                type="text" 
+                                value={repoUrl}
+                                onChange={(e) => { setRepoUrl(e.target.value); setUrlStatus('idle'); }}
+                                placeholder="https://github.com/username/repo"
+                                className="bg-gray-50 text-gray-800 text-sm px-3 py-3 rounded border border-gray-300 w-full focus:outline-none focus:border-blue-500 transition-colors font-mono ltr"
+                             />
+                         </div>
+                         <div>
+                             <label className="text-gray-500 text-xs mb-1 block font-bold">نام شاخه (Branch):</label>
+                             <select 
+                                value={branch}
+                                onChange={(e) => { setBranch(e.target.value); setUrlStatus('idle'); }}
+                                className="bg-gray-50 text-gray-800 text-sm px-3 py-3 rounded border border-gray-300 w-full focus:outline-none focus:border-blue-500 transition-colors"
+                             >
+                                 <option value="main">main</option>
+                                 <option value="master">master</option>
+                             </select>
+                         </div>
+                    </div>
+
+                    <div className="flex flex-col items-center justify-center p-4 bg-gray-50 rounded-lg border border-gray-200 mb-4">
+                        <p className="text-xs text-gray-500 mb-3">ربات این آدرس را چک می‌کند:</p>
+                        <code className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded mb-4 break-all font-mono">{rawUrl || "..."}</code>
+                        
+                        <button 
+                            onClick={checkUrlConnection}
+                            disabled={urlStatus === 'checking' || !rawUrl}
+                            className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold text-sm transition-all shadow-md ${
+                                urlStatus === 'success' ? 'bg-green-500 text-white cursor-default' :
+                                urlStatus === 'error' ? 'bg-red-500 text-white' :
+                                'bg-blue-600 hover:bg-blue-700 text-white'
+                            }`}
+                        >
+                            {urlStatus === 'checking' && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
+                            {urlStatus === 'idle' && "بررسی آنلاین فایل (کلیک کن)"}
+                            {urlStatus === 'checking' && "در حال چک کردن..."}
+                            {urlStatus === 'success' && <><Check size={18} /> فایل پیدا شد!</>}
+                            {urlStatus === 'error' && <><XCircle size={18} /> پیدا نشد (404)</>}
+                            {urlStatus === 'invalid' && "آدرس اشتباه"}
+                        </button>
+
+                        {urlStatus === 'error' && (
+                            <p className="text-red-600 text-xs mt-3 font-bold animate-pulse">
+                                ⛔ فایل install.sh در آدرس بالا وجود ندارد! لطفا مرحله ۲ را انجام دهید.
+                            </p>
+                        )}
+                    </div>
+                </div>
+
+                {/* Step 4: Run */}
+                <div className={`bg-gray-900 rounded-xl shadow-xl border border-gray-700 p-6 relative overflow-hidden transition-all duration-500 ${urlStatus === 'success' ? 'opacity-100 grayscale-0' : 'opacity-50 grayscale'}`}>
+                    <div className="absolute top-0 right-0 bg-gray-700 text-white px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۴</div>
+                    <h3 className="flex items-center gap-2 font-bold text-lg text-white mb-4">
+                        <Terminal className="text-green-400" /> اجرای دستور در سرور
+                    </h3>
+                    
+                    {urlStatus !== 'success' && (
+                        <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-[1px] flex items-center justify-center text-center p-4">
+                            <span className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg transform -rotate-2">
+                                🔒 اول مرحله ۳ را تیک سبز بگیرید
+                            </span>
+                        </div>
+                    )}
+
+                    <p className="text-gray-400 text-sm mb-3">
+                        حالا که فایل تایید شد، این دستور را در ترمینال سرور (Putty یا Termius) بزنید:
+                    </p>
+                    
+                    <div className="bg-black rounded-lg p-4 relative group border border-green-500/30">
+                        <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed break-all" dir="ltr">{oneLiner}</pre>
+                        <button 
+                            onClick={() => copyToClipboard(oneLiner)}
+                            className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-all flex items-center gap-2"
+                        >
+                             {copied ? <Check size={16} /> : <Copy size={16} />}
+                        </button>
+                    </div>
+                </div>
+
             </div>
           </div>
         );
@@ -306,7 +385,7 @@ export default function App() {
                 onClick={() => setActiveTab(Tab.BASH)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === Tab.BASH ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
              >
-                <Terminal size={16} /> اسکریپت نصب
+                <Terminal size={16} /> راهنمای نصب
              </button>
              <button 
                 onClick={() => setActiveTab(Tab.ANALYSIS)}
