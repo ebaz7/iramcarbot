@@ -18,6 +18,7 @@ export default function App() {
   const [analysis, setAnalysis] = useState<string>("");
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [repoUrl, setRepoUrl] = useState("https://github.com/ebaz7/iramcarbot.git");
+  const [branch, setBranch] = useState("main"); // Default branch
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -81,7 +82,7 @@ export default function App() {
   };
 
   // Helper to convert standard GitHub URL to Raw version for the one-liner
-  const getOneLiner = (url: string) => {
+  const getOneLiner = (url: string, branchName: string) => {
       try {
           // Remove .git suffix
           let cleanUrl = url.endsWith('.git') ? url.slice(0, -4) : url;
@@ -93,8 +94,8 @@ export default function App() {
           if (parts.length >= 5) {
               const user = parts[parts.length - 2];
               const repo = parts[parts.length - 1];
-              // Construct raw url (assuming main branch)
-              const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/main/install.sh`;
+              // Construct raw url
+              const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branchName}/install.sh`;
               return `bash <(curl -Ls ${rawUrl})`;
           }
           return "# خطا در تشخیص آدرس گیت‌هاب";
@@ -141,7 +142,7 @@ export default function App() {
           </div>
         );
       case Tab.BASH:
-        const oneLiner = getOneLiner(repoUrl);
+        const oneLiner = getOneLiner(repoUrl, branch);
 
         return (
            <div className="h-full overflow-hidden flex flex-col p-4 space-y-4 overflow-y-auto">
@@ -155,23 +156,41 @@ export default function App() {
                 
                 <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg mb-4 flex gap-3 items-start">
                     <AlertTriangle className="text-yellow-500 shrink-0 mt-1" size={18} />
-                    <p className="text-yellow-200 text-xs leading-relaxed">
-                        توجه: برای اینکه این دستور کار کند، ابتدا فایل <code>install.sh</code> جدید زیر را دانلود کرده و در گیت‌هاب خود <b>جایگزین (Update)</b> کنید.
-                    </p>
+                    <div className="text-yellow-200 text-xs leading-relaxed">
+                        <p>ارور <b>404</b> یعنی فایل در آدرس مورد نظر پیدا نشد. لطفا مطمئن شوید:</p>
+                        <ul className="list-disc list-inside mt-1 space-y-1 text-yellow-100/70">
+                            <li>مخزن گیت‌هاب شما <b>Public (عمومی)</b> باشد.</li>
+                            <li>نام فایل دقیقاً <code>install.sh</code> باشد.</li>
+                            <li>شاخه (Branch) را درست انتخاب کرده باشید (معمولاً main یا master).</li>
+                        </ul>
+                    </div>
                 </div>
 
-                <div className="mt-2 mb-4 flex flex-col gap-2">
-                     <label className="text-gray-400 text-xs">آدرس مخزن گیت‌هاب شما:</label>
-                     <input 
-                        type="text" 
-                        value={repoUrl}
-                        onChange={(e) => setRepoUrl(e.target.value)}
-                        className="bg-black/30 text-white text-sm px-3 py-2 rounded border border-slate-600 w-full focus:outline-none focus:border-blue-500 transition-colors font-mono"
-                     />
+                <div className="mt-2 mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                     <div className="md:col-span-2">
+                         <label className="text-gray-400 text-xs mb-1 block">آدرس مخزن گیت‌هاب:</label>
+                         <input 
+                            type="text" 
+                            value={repoUrl}
+                            onChange={(e) => setRepoUrl(e.target.value)}
+                            className="bg-black/30 text-white text-sm px-3 py-2 rounded border border-slate-600 w-full focus:outline-none focus:border-blue-500 transition-colors font-mono ltr"
+                         />
+                     </div>
+                     <div>
+                         <label className="text-gray-400 text-xs mb-1 block">شاخه (Branch):</label>
+                         <select 
+                            value={branch}
+                            onChange={(e) => setBranch(e.target.value)}
+                            className="bg-black/30 text-white text-sm px-3 py-2 rounded border border-slate-600 w-full focus:outline-none focus:border-blue-500 transition-colors"
+                         >
+                             <option value="main">main</option>
+                             <option value="master">master</option>
+                         </select>
+                     </div>
                 </div>
                 
                 <div className="bg-black rounded-lg p-4 relative group border border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]">
-                    <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed break-all">{oneLiner}</pre>
+                    <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed break-all" dir="ltr">{oneLiner}</pre>
                     <button 
                         onClick={() => copyToClipboard(oneLiner)}
                         className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
@@ -182,14 +201,14 @@ export default function App() {
                     </button>
                 </div>
                 <p className="text-gray-500 text-[10px] mt-2 text-center">
-                    این دستور را در ترمینال سرور (لینوکس) کپی و اجرا کنید.
+                    اگر باز هم ارور 404 گرفتید، احتمالا نام برنچ شما در گیت‌هاب متفاوت است.
                 </p>
             </div>
 
             {/* Manual Script Section */}
             <div className="flex-1 flex flex-col min-h-[300px]">
                 <div className="bg-gray-800 text-gray-200 p-2 text-sm flex justify-between items-center rounded-t-lg">
-                    <span className="flex items-center gap-2"><Code size={14}/> فایل install.sh (نسخه لودر - آپلود در گیت‌هاب)</span>
+                    <span className="flex items-center gap-2"><Code size={14}/> فایل install.sh (نسخه لودر)</span>
                     <div className="flex gap-2">
                         <button 
                         onClick={() => downloadFile("install.sh", generateBashScript(repoUrl))}
