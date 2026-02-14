@@ -1,0 +1,5 @@
+{
+  "name": "Iran Car Bot Builder",
+  "description": "A comprehensive tool to simulate, build, and deploy a Telegram bot for Iranian car prices and estimation. Features a live simulator, code generation, and market analysis.",
+  "requestFramePermissions": []
+}
