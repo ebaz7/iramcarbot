@@ -599,9 +599,16 @@ function show_logo() {
 }
 
 function install_dependencies() {
-    echo -e "\${BLUE}[INFO] Installing system dependencies...\${NC}"
-    apt-get update -y > /dev/null 2>&1
-    apt-get install -y python3 python3-pip python3-venv zip unzip git > /dev/null 2>&1
+    echo -e "\${BLUE}[INFO] Installing system dependencies... (This might take a few minutes)\${NC}"
+    echo -e "\${YELLOW}Please wait and check the logs below...\${NC}"
+    
+    # Set non-interactive to avoid prompts like "Do you want to restart services?"
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # Run updates and installs VISIBLY (Removed > /dev/null) so user sees progress
+    apt-get update -y
+    apt-get install -y python3 python3-pip python3-venv zip unzip git
+    
     echo -e "\${GREEN}✓ Dependencies installed.\${NC}"
 }
 
@@ -644,7 +651,8 @@ function install_bot() {
     
     echo -e "\${BLUE}[INFO] Installing Python libraries...\${NC}"
     source venv/bin/activate
-    pip install -q python-telegram-bot jdatetime pandas openpyxl
+    # Remove -q to show pip progress
+    pip install python-telegram-bot jdatetime pandas openpyxl
     
     # Replace Tokens in bot.py (if placeholder exists)
     if [ -f "bot.py" ]; then
