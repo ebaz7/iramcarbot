@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import TelegramMock from './components/TelegramMock';
 import { generateBashScript, generatePythonCode } from './services/generator';
-import { Terminal, Code, Play, Check, Copy, Info, Download, GitBranch, Server, AlertTriangle } from 'lucide-react';
+import { Terminal, Code, Play, Check, Copy, Info, Download, GitBranch, Server, AlertTriangle, ExternalLink } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { CAR_DB } from './constants';
 
@@ -81,11 +81,12 @@ export default function App() {
     }
   };
 
-  // Helper to convert standard GitHub URL to Raw version for the one-liner
-  const getOneLiner = (url: string, branchName: string) => {
+  // Helper to extract raw URL
+  const getRawUrl = (url: string, branchName: string): string | null => {
       try {
+          let cleanUrl = url.trim();
           // Remove .git suffix
-          let cleanUrl = url.endsWith('.git') ? url.slice(0, -4) : url;
+          if (cleanUrl.endsWith('.git')) cleanUrl = cleanUrl.slice(0, -4);
           // Remove trailing slash
           if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
           
@@ -94,13 +95,11 @@ export default function App() {
           if (parts.length >= 5) {
               const user = parts[parts.length - 2];
               const repo = parts[parts.length - 1];
-              // Construct raw url
-              const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branchName}/install.sh`;
-              return `bash <(curl -Ls ${rawUrl})`;
+              return `https://raw.githubusercontent.com/${user}/${repo}/${branchName}/install.sh`;
           }
-          return "# خطا در تشخیص آدرس گیت‌هاب";
+          return null;
       } catch {
-          return "# لینک گیت‌هاب معتبر نیست";
+          return null;
       }
   };
 
@@ -142,7 +141,8 @@ export default function App() {
           </div>
         );
       case Tab.BASH:
-        const oneLiner = getOneLiner(repoUrl, branch);
+        const rawUrl = getRawUrl(repoUrl, branch);
+        const oneLiner = rawUrl ? `bash <(curl -Ls ${rawUrl})` : "# لینک گیت‌هاب معتبر نیست";
 
         return (
            <div className="h-full overflow-hidden flex flex-col p-4 space-y-4 overflow-y-auto">
@@ -157,16 +157,12 @@ export default function App() {
                 <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg mb-4 flex gap-3 items-start">
                     <AlertTriangle className="text-yellow-500 shrink-0 mt-1" size={18} />
                     <div className="text-yellow-200 text-xs leading-relaxed">
-                        <p>ارور <b>404</b> یعنی فایل در آدرس مورد نظر پیدا نشد. لطفا مطمئن شوید:</p>
-                        <ul className="list-disc list-inside mt-1 space-y-1 text-yellow-100/70">
-                            <li>مخزن گیت‌هاب شما <b>Public (عمومی)</b> باشد.</li>
-                            <li>نام فایل دقیقاً <code>install.sh</code> باشد.</li>
-                            <li>شاخه (Branch) را درست انتخاب کرده باشید (معمولاً main یا master).</li>
-                        </ul>
+                        <p>برای رفع ارور <b>404</b>، حتما قبل از اجرا روی دکمه آبی <b>"تست لینک"</b> کلیک کنید.</p>
+                        <p className="mt-1 opacity-70">اگر مرورگر ارور داد، یعنی فایل هنوز در گیت‌هاب آپلود نشده یا Private است.</p>
                     </div>
                 </div>
 
-                <div className="mt-2 mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="mt-2 mb-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                      <div className="md:col-span-2">
                          <label className="text-gray-400 text-xs mb-1 block">آدرس مخزن گیت‌هاب:</label>
                          <input 
@@ -187,6 +183,20 @@ export default function App() {
                              <option value="master">master</option>
                          </select>
                      </div>
+                     <div>
+                        <a 
+                           href={rawUrl || '#'} 
+                           target="_blank" 
+                           rel="noopener noreferrer"
+                           className={`flex items-center justify-center gap-2 w-full px-3 py-2 rounded font-bold text-sm transition-all shadow-lg ${
+                               rawUrl 
+                               ? 'bg-blue-600 hover:bg-blue-500 text-white hover:scale-105' 
+                               : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                           }`}
+                        >
+                           <ExternalLink size={16} /> تست لینک
+                        </a>
+                     </div>
                 </div>
                 
                 <div className="bg-black rounded-lg p-4 relative group border border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]">
@@ -200,9 +210,6 @@ export default function App() {
                          <span className="text-xs">کپی</span>
                     </button>
                 </div>
-                <p className="text-gray-500 text-[10px] mt-2 text-center">
-                    اگر باز هم ارور 404 گرفتید، احتمالا نام برنچ شما در گیت‌هاب متفاوت است.
-                </p>
             </div>
 
             {/* Manual Script Section */}
