@@ -156,7 +156,7 @@ export default function App() {
                 <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg mb-4 flex gap-3 items-start">
                     <AlertTriangle className="text-yellow-500 shrink-0 mt-1" size={18} />
                     <p className="text-yellow-200 text-xs leading-relaxed">
-                        برای استفاده از دستور زیر، ابتدا فایل <code>install.sh</code> پایین صفحه را دانلود کرده و در مخزن گیت‌هاب خود (شاخه main) آپلود کنید.
+                        توجه: برای اینکه این دستور کار کند، ابتدا فایل <code>install.sh</code> جدید زیر را دانلود کرده و در گیت‌هاب خود <b>جایگزین (Update)</b> کنید.
                     </p>
                 </div>
 
@@ -189,17 +189,17 @@ export default function App() {
             {/* Manual Script Section */}
             <div className="flex-1 flex flex-col min-h-[300px]">
                 <div className="bg-gray-800 text-gray-200 p-2 text-sm flex justify-between items-center rounded-t-lg">
-                    <span className="flex items-center gap-2"><Code size={14}/> فایل install.sh (جهت آپلود در گیت‌هاب)</span>
+                    <span className="flex items-center gap-2"><Code size={14}/> فایل install.sh (نسخه لودر - آپلود در گیت‌هاب)</span>
                     <div className="flex gap-2">
                         <button 
-                        onClick={() => downloadFile("install.sh", generateBashScript())}
+                        onClick={() => downloadFile("install.sh", generateBashScript(repoUrl))}
                         className="flex items-center gap-1 bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded text-white transition-colors text-xs font-bold shadow-md"
                         title="دانلود فایل نصب"
                         >
                         <Download size={14} /> دانلود فایل
                         </button>
                         <button 
-                        onClick={() => copyToClipboard(generateBashScript())}
+                        onClick={() => copyToClipboard(generateBashScript(repoUrl))}
                         className="flex items-center gap-1 hover:text-white transition-colors"
                         >
                         {copied ? <Check size={14} /> : <Copy size={14} />}
@@ -207,7 +207,7 @@ export default function App() {
                     </div>
                 </div>
                 <pre className="flex-1 bg-[#1e1e1e] text-gray-400 p-4 overflow-auto text-xs md:text-sm font-mono rounded-b-lg border-x border-b border-gray-700">
-                <code>{generateBashScript()}</code>
+                <code>{generateBashScript(repoUrl)}</code>
                 </pre>
             </div>
           </div>

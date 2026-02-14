@@ -555,8 +555,8 @@ if __name__ == '__main__':
 };
 
 // --- Bash Script Generator (Interactive Menu) ---
-export const generateBashScript = (): string => {
-  const pythonContent = generatePythonCode();
+export const generateBashScript = (repoUrl: string = "https://github.com/ebaz7/iramcarbot.git"): string => {
+  // We do NOT embed python code anymore. We clone it.
   
   return `#!/bin/bash
 
@@ -572,6 +572,7 @@ BLUE='\\033[0;34m'
 CYAN='\\033[0;36m'
 NC='\\033[0m'
 
+REPO_URL="${repoUrl}"
 DIR="/opt/telegram-car-bot"
 SERVICE_NAME="carbot.service"
 DATA_FILE="bot_data.json"
@@ -616,7 +617,24 @@ function install_bot() {
     if [ ! -d "\$DIR" ]; then
         mkdir -p "\$DIR"
     fi
-    cd "\$DIR"
+    
+    # Git Clone / Pull
+    if [ -d "\$DIR/.git" ]; then
+        echo -e "\${BLUE}[INFO] Updating repository...\${NC}"
+        cd "\$DIR"
+        git pull
+    else
+        echo -e "\${BLUE}[INFO] Cloning repository...\${NC}"
+        # Clone into a temp dir and move or directly if empty
+        if [ -z "\$(ls -A \$DIR)" ]; then
+           git clone "\$REPO_URL" "\$DIR"
+        else
+           echo -e "\${YELLOW}Directory not empty. Backing up...\${NC}"
+           mv "\$DIR" "\$DIR.bak_\$(date +%s)"
+           git clone "\$REPO_URL" "\$DIR"
+        fi
+        cd "\$DIR"
+    fi
 
     # Virtual Env
     if [ ! -d "venv" ]; then
@@ -628,25 +646,19 @@ function install_bot() {
     source venv/bin/activate
     pip install -q python-telegram-bot jdatetime pandas openpyxl
     
-    # Generate bot.py if needed, or stick with current one
-    # Note: If running via curl pipe, we need to create bot.py
-    # If running from cloned repo, we might have it.
-    
+    # Replace Tokens in bot.py (if placeholder exists)
     if [ -f "bot.py" ]; then
-        echo -e "\${YELLOW}[INFO] Existing bot.py found. Keeping it.\${NC}"
+        if [ ! -z "\$BOT_TOKEN" ]; then
+            sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
+        fi
+        if [ ! -z "\$ADMIN_ID" ]; then
+            sed -i "s/REPLACE_ME_ADMIN_ID/\$ADMIN_ID/g" bot.py
+        fi
     else
-        echo -e "\${BLUE}[INFO] Generating bot code...\${NC}"
-        cat << 'EOF' > bot.py
-${pythonContent}
-EOF
-    fi
-
-    # Replace Tokens
-    if [ ! -z "\$BOT_TOKEN" ]; then
-        sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
-    fi
-    if [ ! -z "\$ADMIN_ID" ]; then
-        sed -i "s/REPLACE_ME_ADMIN_ID/\$ADMIN_ID/g" bot.py
+        echo -e "\${RED}[ERROR] bot.py not found in the cloned repository!\${NC}"
+        echo -e "\${YELLOW}Please ensure you uploaded bot.py to GitHub.\${NC}"
+        read -p "Press Enter to exit..."
+        exit 1
     fi
 
     # Service
