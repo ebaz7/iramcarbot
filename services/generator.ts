@@ -1,7 +1,117 @@
 import { CAR_DB } from '../constants';
 
+// --- Bash Script Generator ---
+export const generateBashScript = (repoUrl: string): string => {
+  return `#!/bin/bash
+
+# Colors
+GREEN='\\033[0;32m'
+BLUE='\\033[0;34m'
+RED='\\033[0;31m'
+NC='\\033[0m'
+
+echo -e "\${BLUE}🚀 Starting Iran Car Bot Installation...\${NC}"
+
+# 1. Update System
+echo -e "\${GREEN}📦 Updating system packages...\${NC}"
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip python3-venv git
+
+# 2. Setup Directory
+echo -e "\${GREEN}📂 Setting up directory...\${NC}"
+mkdir -p ~/carbot
+cd ~/carbot
+
+# 3. Download Files
+echo -e "\${GREEN}⬇️  Downloading bot files from GitHub...\${NC}"
+if [ -d ".git" ]; then
+    echo "Repo exists, pulling changes..."
+    git pull
+else
+    # Clone the repo provided by the user
+    git clone "${repoUrl}" .
+fi
+
+# Check if bot.py exists
+if [ ! -f "bot.py" ]; then
+    echo -e "\${RED}❌ Error: bot.py not found in the repository!\${NC}"
+    echo "Please upload 'bot.py' and 'install.sh' to your GitHub repository first."
+    exit 1
+fi
+
+# 4. Setup Python Environment
+echo -e "\${GREEN}🐍 Setting up virtual environment...\${NC}"
+python3 -m venv venv
+source venv/bin/activate
+
+# 5. Install Dependencies
+echo -e "\${GREEN}📚 Installing libraries...\${NC}"
+pip install --upgrade pip
+pip install python-telegram-bot pandas openpyxl jdatetime
+
+# 6. Configure Bot (Crucial Step for Admin Access)
+echo -e "\${BLUE}⚙️  Configuration\${NC}"
+echo "------------------------------------------------"
+read -p "Enter your Telegram Bot Token: " BOT_TOKEN
+read -p "Enter your Numeric Admin ID (from @userinfobot): " ADMIN_ID
+echo "------------------------------------------------"
+
+# Replace credentials in bot.py
+# 1. Set Token
+sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
+
+# 2. Set Owner ID (This grants full Admin access)
+# Replaces 'OWNER_ID = 0' with 'OWNER_ID = 123456789'
+sed -i "s/OWNER_ID = 0/OWNER_ID = \$ADMIN_ID/g" bot.py
+
+# 3. Replace the comment placeholder just in case
+sed -i "s/REPLACE_ME_ADMIN_ID/\$ADMIN_ID/g" bot.py
+
+echo -e "\${GREEN}✅ Admin ID set to \$ADMIN_ID. You now have full ownership permissions.\${NC}"
+
+# 7. Setup Systemd Service (Auto-Restart)
+echo -e "\${GREEN}🤖 Creating background service...\${NC}"
+SERVICE_FILE="/etc/systemd/system/carbot.service"
+CURRENT_USER=\$(whoami)
+WORKING_DIR=\$(pwd)
+PYTHON_EXEC="\$WORKING_DIR/venv/bin/python"
+
+sudo bash -c "cat > \$SERVICE_FILE" <<EOL
+[Unit]
+Description=Iran Car Price Bot
+After=network.target
+
+[Service]
+User=\$CURRENT_USER
+WorkingDirectory=\$WORKING_DIR
+ExecStart=\$PYTHON_EXEC bot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+# 8. Start Service
+sudo systemctl daemon-reload
+sudo systemctl enable carbot
+sudo systemctl restart carbot
+
+echo -e "\${GREEN}✅ Installation Successful!\${NC}"
+echo -e "The bot is now running in the background."
+echo -e "Check status: \${BLUE}sudo systemctl status carbot\${NC}"
+echo -e "To view logs: \${BLUE}journalctl -u carbot -f\${NC}"
+`;
+};
+
 // --- Python Code Generator ---
 export const generatePythonCode = (): string => {
+  // Convert CAR_DB to Python dictionary format string
+  const pythonCarDb = JSON.stringify(CAR_DB, null, 4)
+      .replace(/true/g, 'True')
+      .replace(/false/g, 'False')
+      .replace(/null/g, 'None');
+
   return `import logging
 import json
 import os
@@ -9,7 +119,7 @@ import random
 import jdatetime
 import pandas as pd
 from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 
 # Configuration
@@ -45,15 +155,29 @@ PAINT_CONDITIONS = [
   {"label": "تعویض اتاق", "drop": 0.30}
 ]
 
+# --- DEFAULT DATA (INJECTED) ---
+DEFAULT_CARS = ${pythonCarDb}
+
 # --- Data Management ---
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                data = json.load(f)
+                # If cars dict is empty/missing, inject default data
+                if not data.get('cars'):
+                    data['cars'] = DEFAULT_CARS
+                return data
         except: pass
-    # Structure: cars, sponsor, users(dict), last_update, admins(list)
-    return {"cars": {}, "sponsor": {}, "users": {}, "last_update": "نامشخص", "admins": []}
+    
+    # Return structure with defaults if file missing
+    return {
+        "cars": DEFAULT_CARS, 
+        "sponsor": {}, 
+        "users": {}, 
+        "last_update": "پیش‌فرض", 
+        "admins": []
+    }
 
 def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
@@ -66,7 +190,8 @@ def get_last_update():
     return load_data().get("last_update", "نامشخص")
 
 def is_admin(user_id):
-    if user_id == OWNER_ID:
+    # Check OWNER_ID (Handle string/int mismatch)
+    if str(user_id) == str(OWNER_ID):
         return True
     data = load_data()
     return user_id in data.get("admins", [])
@@ -74,7 +199,7 @@ def is_admin(user_id):
 def add_admin(new_admin_id):
     data = load_data()
     if "admins" not in data: data["admins"] = []
-    if new_admin_id not in data["admins"] and new_admin_id != OWNER_ID:
+    if new_admin_id not in data["admins"] and str(new_admin_id) != str(OWNER_ID):
         data["admins"].append(new_admin_id)
         save_data(data)
         return True
@@ -111,10 +236,15 @@ def attach_footer(keyboard):
 
 # --- Admin Handlers ---
 async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
     user_id = update.effective_user.id
+    
     if not is_admin(user_id):
-        await update.message.reply_text("⛔ شما دسترسی ادمین ندارید.")
+        if query: await query.answer("⛔ شما دسترسی ادمین ندارید.", show_alert=True)
+        else: await update.message.reply_text("⛔ شما دسترسی ادمین ندارید.")
         return ConversationHandler.END
+    
+    if query: await query.answer()
     
     keyboard = [
         [InlineKeyboardButton("👥 مدیریت ادمین‌ها", callback_data='adm_manage_admins')],
@@ -124,7 +254,13 @@ async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📣 ارسال همگانی پیشرفته", callback_data='adm_broadcast')],
         [InlineKeyboardButton("🔙 خروج", callback_data='main_menu')]
     ]
-    await update.message.reply_text("🛠 **پنل مدیریت**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    
+    text = "🛠 **پنل مدیریت**\\nگزینه مورد نظر را انتخاب کنید:"
+    if query:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        
     return ADMIN_MENU
 
 async def adm_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -162,7 +298,7 @@ async def adm_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         df.to_excel(EXCEL_FILE, index=False)
         await query.message.reply_document(
             document=open(EXCEL_FILE, 'rb'), 
-            caption="📂 **فایل قیمت‌های فعلی**\n\n1. دانلود و ویرایش کنید.\n2. **فایل ویرایش شده را همینجا ارسال کنید.**"
+            caption="📂 **فایل قیمت‌های فعلی**\\n\\n1. دانلود و ویرایش کنید.\\n2. **فایل ویرایش شده را همینجا ارسال کنید.**"
         )
         return UPLOAD_EXCEL
 
@@ -195,7 +331,7 @@ async def manage_admins_choice(update: Update, context: ContextTypes.DEFAULT_TYP
     choice = query.data
     
     if choice == 'add_admin':
-        await query.edit_message_text("🔢 لطفا **شناسه عددی (Numeric ID)** کاربر جدید را ارسال کنید:\n\n(کاربر می‌تواند با ارسال دستور /id شناسه خود را دریافت کند)")
+        await query.edit_message_text("🔢 لطفا **شناسه عددی (Numeric ID)** کاربر جدید را ارسال کنید:\\n\\n(کاربر می‌تواند با ارسال دستور /id شناسه خود را دریافت کند)")
         return ADD_NEW_ADMIN
     
     elif choice == 'list_admins':
@@ -242,7 +378,7 @@ async def adm_broadcast_menu_choice(update: Update, context: ContextTypes.DEFAUL
 
     context.user_data['bcast_type'] = choice
     if choice == 'bcast_schedule':
-        await query.edit_message_text("🕒 **زمان ارسال** را وارد کنید:\nفرمت: YYYY/MM/DD HH:MM")
+        await query.edit_message_text("🕒 **زمان ارسال** را وارد کنید:\\nفرمت: YYYY/MM/DD HH:MM")
         return BROADCAST_GET_TIME
     
     await query.edit_message_text("✍️ **متن پیام** خود را بنویسید:")
@@ -251,11 +387,10 @@ async def adm_broadcast_menu_choice(update: Update, context: ContextTypes.DEFAUL
 async def adm_broadcast_get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time_str = update.message.text
     context.user_data['bcast_time_str'] = time_str
-    await update.message.reply_text(f"✅ زمان ثبت شد: {time_str}\n\n✍️ حالا **متن پیام** را بنویسید:")
+    await update.message.reply_text(f"✅ زمان ثبت شد: {time_str}\\n\\n✍️ حالا **متن پیام** را بنویسید:")
     return BROADCAST_GET_CONTENT
 
 async def scheduled_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
-    # (Same simplified logic)
     job = context.job
     message_text = job.data.get('text')
     data = load_data()
@@ -365,7 +500,7 @@ async def add_car_variant(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("قیمت:")
     return ADD_PRICE
 async def add_car_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ ثبت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='main_menu')]]))
+    await update.message.reply_text("✅ ثبت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازشت", callback_data='main_menu')]]))
     return ConversationHandler.END
 
 # --- Estimator Handlers (Standard) ---
@@ -377,7 +512,7 @@ async def start_estimate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 انصراف", callback_data='main_menu')])
     await query.edit_message_text("برند:", reply_markup=InlineKeyboardMarkup(keyboard))
     return EST_BRAND
-# ... (Skipping verbose estimator sub-functions as they are unchanged logic-wise) ...
+
 async def est_select_brand(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -414,20 +549,88 @@ async def est_get_mileage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def est_calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    # (Simplified Calc logic)
-    await query.edit_message_text("💰 قیمت تخمینی: ...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("خانه", callback_data='main_menu')]]))
+    
+    # Calculation Logic
+    data = context.user_data
+    brand = data.get('est_brand')
+    model = data.get('est_model')
+    year = data.get('est_year')
+    mileage = data.get('est_mileage')
+    paint_idx = int(query.data.replace('est_paint_', ''))
+    paint = PAINT_CONDITIONS[paint_idx]
+    
+    # Get base price
+    cars_db = get_db()
+    base_price = 0
+    try:
+        models = cars_db[brand]['models']
+        for m in models:
+            if m['name'] == model:
+                base_price = m['variants'][0]['marketPrice']
+                break
+    except: base_price = 800 # Fallback
+    
+    # Logic
+    current_year = 1404
+    age = current_year - year
+    
+    age_drop = 0.05 if age == 1 else (0.05 + ((age-1)*0.035)) if age > 1 else 0
+    if age_drop > 0.40: age_drop = 0.40
+    
+    std_mileage = age * 20000
+    diff = mileage - std_mileage
+    mileage_drop = (diff/10000)*0.01 if diff > 0 else (diff/10000)*0.005
+    if mileage_drop > 0.15: mileage_drop = 0.15
+    if mileage_drop < -0.05: mileage_drop = -0.05
+    
+    paint_drop = paint['drop']
+    
+    total_drop = age_drop + mileage_drop + paint_drop
+    final_price = base_price * (1 - total_drop)
+    final_price = round(final_price / 5) * 5 # Round to nearest 5
+    
+    msg = f"🎯 **نتیجه تخمین قیمت**\\n\\n"
+    msg += f"🚙 **{brand} {model}**\\n"
+    msg += f"📅 سال: {year} | 🛣 کارکرد: {mileage:,}\\n"
+    msg += f"🎨 بدنه: {paint['label']}\\n"
+    msg += f"-------------------------\\n"
+    msg += f"💰 **قیمت تقریبی: {final_price:,} میلیون تومان**"
+    
+    keyboard = [
+        [InlineKeyboardButton("🧮 محاسبه دقیق (آنلاین)", web_app=WebAppInfo(url="https://www.hamrah-mechanic.com/carprice/"))],
+        [InlineKeyboardButton("🏠 منوی اصلی", callback_data='main_menu')]
+    ]
+    
+    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     return ConversationHandler.END
 
 # --- Start & User Commands ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    log_user(update.effective_user.id)
+    user = update.effective_user
+    log_user(user.id)
+    
     keyboard = [
-        [InlineKeyboardButton("📋 لیست قیمت روز", callback_data='menu_prices')],
-        [InlineKeyboardButton("💰 تخمین قیمت کارکرده", callback_data='menu_estimate')],
-        [InlineKeyboardButton("🔍 جستجو", callback_data='menu_search'), InlineKeyboardButton("📞 پشتیبانی", callback_data='menu_support')]
+        [
+            InlineKeyboardButton("🧮 ماشین حساب حرفه‌ای", web_app=WebAppInfo(url="https://www.hamrah-mechanic.com/carprice/")),
+            InlineKeyboardButton("📋 قیمت روز بازار", web_app=WebAppInfo(url="https://www.iranjib.ir/showgroup/45/%D9%82%DB%8C%D9%85%D8%AA-%D8%AE%D9%88%D8%AF%D8%B1%D9%88-%D8%AA%D9%88%D9%84%DB%8C%D8%AF-%D8%AF%D8%A7%D8%AE%D9%84/"))
+        ],
+        [
+            InlineKeyboardButton("📋 لیست قیمت (ربات)", callback_data='menu_prices'),
+            InlineKeyboardButton("💰 تخمین قیمت (ربات)", callback_data='menu_estimate')
+        ],
+        [
+            InlineKeyboardButton("🔍 جستجو", callback_data='menu_search'),
+            InlineKeyboardButton("📞 پشتیبانی", callback_data='menu_support')
+        ]
     ]
+    
+    # Show Admin Panel Button if Owner or Admin (MAGIC PART)
+    if is_admin(user.id):
+        keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data='admin_home')])
+
     keyboard = attach_footer(keyboard)
     msg = "👋 منوی اصلی:"
+    
     if update.callback_query:
         await update.callback_query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
@@ -442,6 +645,10 @@ async def show_brands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     cars_db = get_db()
+    if not cars_db:
+         await query.edit_message_text("❌ دیتابیس خالی است. لطفا با ادمین تماس بگیرید.")
+         return
+         
     keyboard = []
     brands = list(cars_db.keys())
     for i in range(0, len(brands), 2):
@@ -449,13 +656,18 @@ async def show_brands(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if i+1 < len(brands): row.append(InlineKeyboardButton(brands[i+1], callback_data=f'brand_{brands[i+1]}'))
         keyboard.append(row)
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data='main_menu')])
-    await query.edit_message_text("🏢 برند:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text("🏢 برند مورد نظر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     brand = query.data.replace('brand_', '')
     cars_db = get_db()
+    
+    if brand not in cars_db:
+        await query.answer("خطا در یافتن اطلاعات", show_alert=True)
+        return
+
     models = [m['name'] for m in cars_db[brand]['models']]
     keyboard = [[InlineKeyboardButton(m, callback_data=f'model_{brand}_{m}')] for m in models]
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data='menu_prices')])
@@ -483,17 +695,30 @@ async def show_final_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for m in cars_db[brand]['models']:
         if m['name'] == model: variant = m['variants'][idx]; break
     if variant:
-        text = f"📊 {variant['name']}\\n💰 {variant['marketPrice']} م"
+        text = f"📊 **{variant['name']}**\\n\\n"
+        text += f"💰 **قیمت بازار:** {variant['marketPrice']} میلیون تومان\\n"
+        text += f"🏭 **قیمت کارخانه:** {variant['factoryPrice']} میلیون تومان\\n\\n"
+        text += f"📅 بروزرسانی: {get_last_update()}"
+        
         keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f'model_{brand}_{model}')]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 # --- Main ---
 def main():
-    application = ApplicationBuilder().token(TOKEN).build()
+    builder = ApplicationBuilder().token(TOKEN)
+    
+    # Check for Proxy Env Var (Configured via install.sh)
+    proxy_url = os.environ.get("PROXY_URL")
+    if proxy_url and proxy_url.strip():
+        print(f"Using Proxy: {proxy_url}")
+        builder.proxy_url(proxy_url)
+        builder.get_updates_request(read_timeout=30, connect_timeout=30)
+    
+    application = builder.build()
     
     # Admin Conversation
     admin_conv = ConversationHandler(
-        entry_points=[CommandHandler('admin', admin_start)],
+        entry_points=[CommandHandler('admin', admin_start), CallbackQueryHandler(admin_start, pattern='^admin_home$')],
         states={
             ADMIN_MENU: [CallbackQueryHandler(adm_menu_choice)],
             MANAGE_ADMINS: [CallbackQueryHandler(manage_admins_choice)],
@@ -543,6 +768,7 @@ def main():
     application.add_handler(CallbackQueryHandler(show_brands, pattern='^menu_prices$'))
     application.add_handler(CallbackQueryHandler(start, pattern='^main_menu$'))
     application.add_handler(CallbackQueryHandler(show_models, pattern='^brand_'))
+    application.add_handler(CallbackQueryHandler(show_models, pattern='^brand_'))
     application.add_handler(CallbackQueryHandler(show_variants, pattern='^model_'))
     application.add_handler(CallbackQueryHandler(show_final_price, pattern='^variant_'))
     
@@ -551,193 +777,5 @@ def main():
 
 if __name__ == '__main__':
     main()
-`;
-};
-
-// --- Bash Script Generator (Interactive Menu) ---
-export const generateBashScript = (repoUrl: string = "https://github.com/ebaz7/iramcarbot.git"): string => {
-  // We do NOT embed python code anymore. We clone it.
-  
-  return `#!/bin/bash
-
-# ==========================================
-#      Telegram Bot Manager - CarPrice
-# ==========================================
-
-# Colors
-RED='\\033[0;31m'
-GREEN='\\033[0;32m'
-YELLOW='\\033[1;33m'
-BLUE='\\033[0;34m'
-CYAN='\\033[0;36m'
-NC='\\033[0m'
-
-REPO_URL="${repoUrl}"
-DIR="/opt/telegram-car-bot"
-SERVICE_NAME="carbot.service"
-DATA_FILE="bot_data.json"
-CONFIG_FILE="config.env"
-
-# Ensure we are running as root
-if [ "$EUID" -ne 0 ]; then
-    echo -e "\${RED}Please run as root (sudo bash install.sh)\${NC}"
-    exit
-fi
-
-function show_logo() {
-    clear
-    echo -e "\${CYAN}"
-    echo "  ____            ____       _     "
-    echo " / ___|__ _ _ __ | __ )  ___| |_   "
-    echo "| |   / _\` | '__||  _ \\ / _ \\ __|  "
-    echo "| |__| (_| | |   | |_) | (_) | |_   "
-    echo " \\____\\__,_|_|   |____/ \\___/ \\__|  "
-    echo "                                    "
-    echo -e "\${NC}"
-    echo -e "\${BLUE}Telegram Bot Manager V2.0\${NC}"
-    echo -e "-----------------------------------"
-}
-
-function install_dependencies() {
-    echo -e "\${BLUE}[INFO] Installing system dependencies... (This might take a few minutes)\${NC}"
-    echo -e "\${YELLOW}Please wait and check the logs below...\${NC}"
-    
-    # Set non-interactive to avoid prompts like "Do you want to restart services?"
-    export DEBIAN_FRONTEND=noninteractive
-    
-    # Run updates and installs VISIBLY (Removed > /dev/null) so user sees progress
-    apt-get update -y
-    apt-get install -y python3 python3-pip python3-venv zip unzip git
-    
-    echo -e "\${GREEN}✓ Dependencies installed.\${NC}"
-}
-
-function install_bot() {
-    show_logo
-    echo -e "\${GREEN}>>> INSTALLATION WIZARD <<<\${NC}"
-    
-    # Credentials
-    read -p "Enter Telegram Bot Token: " BOT_TOKEN
-    read -p "Enter Main Admin (Owner) Numeric ID: " ADMIN_ID
-    
-    # Create Directory
-    if [ ! -d "\$DIR" ]; then
-        mkdir -p "\$DIR"
-    fi
-    
-    # Git Clone / Pull
-    if [ -d "\$DIR/.git" ]; then
-        echo -e "\${BLUE}[INFO] Updating repository...\${NC}"
-        cd "\$DIR"
-        git pull
-    else
-        echo -e "\${BLUE}[INFO] Cloning repository...\${NC}"
-        # Clone into a temp dir and move or directly if empty
-        if [ -z "\$(ls -A \$DIR)" ]; then
-           git clone "\$REPO_URL" "\$DIR"
-        else
-           echo -e "\${YELLOW}Directory not empty. Backing up...\${NC}"
-           mv "\$DIR" "\$DIR.bak_\$(date +%s)"
-           git clone "\$REPO_URL" "\$DIR"
-        fi
-        cd "\$DIR"
-    fi
-
-    # Virtual Env
-    if [ ! -d "venv" ]; then
-        echo -e "\${BLUE}[INFO] Creating Python virtual environment...\${NC}"
-        python3 -m venv venv
-    fi
-    
-    echo -e "\${BLUE}[INFO] Installing Python libraries...\${NC}"
-    source venv/bin/activate
-    # Remove -q to show pip progress
-    pip install python-telegram-bot jdatetime pandas openpyxl
-    
-    # Replace Tokens in bot.py (if placeholder exists)
-    if [ -f "bot.py" ]; then
-        if [ ! -z "\$BOT_TOKEN" ]; then
-            sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
-        fi
-        if [ ! -z "\$ADMIN_ID" ]; then
-            sed -i "s/REPLACE_ME_ADMIN_ID/\$ADMIN_ID/g" bot.py
-        fi
-    else
-        echo -e "\${RED}[ERROR] bot.py not found in the cloned repository!\${NC}"
-        echo -e "\${YELLOW}Please ensure you uploaded bot.py to GitHub.\${NC}"
-        read -p "Press Enter to exit..."
-        exit 1
-    fi
-
-    # Service
-    echo -e "\${BLUE}[INFO] Creating Systemd Service...\${NC}"
-    cat <<EOF > /etc/systemd/system/\$SERVICE_NAME
-[Unit]
-Description=Telegram Car Price Bot
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=\$DIR
-ExecStart=\$DIR/venv/bin/python \$DIR/bot.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    systemctl daemon-reload
-    systemctl enable \$SERVICE_NAME
-    systemctl restart \$SERVICE_NAME
-
-    echo -e "\n\${GREEN}====================================\${NC}"
-    echo -e "\${GREEN}   ✅ INSTALLATION COMPLETE!       \${NC}"
-    echo -e "\${GREEN}====================================\${NC}"
-    echo -e "Bot is running. Use 'systemctl status \$SERVICE_NAME' to check."
-    read -p "Press Enter to continue..."
-}
-
-function menu() {
-    while true; do
-        show_logo
-        echo "1) Install / Reinstall Bot"
-        echo "2) Update Bot (git pull)"
-        echo "3) Restart Service"
-        echo "4) Uninstall"
-        echo "0) Exit"
-        echo ""
-        read -p "Select option: " choice
-        
-        case \$choice in
-            1) install_dependencies; install_bot ;;
-            2) 
-               cd "\$DIR"
-               git pull
-               systemctl restart \$SERVICE_NAME
-               echo -e "\${GREEN}Updated.\${NC}"
-               sleep 2
-               ;;
-            3)
-               systemctl restart \$SERVICE_NAME
-               echo -e "\${GREEN}Service Restarted.\${NC}"
-               sleep 2
-               ;;
-            4)
-               systemctl stop \$SERVICE_NAME
-               systemctl disable \$SERVICE_NAME
-               rm /etc/systemd/system/\$SERVICE_NAME
-               rm -rf "\$DIR"
-               echo -e "\${RED}Uninstalled.\${NC}"
-               sleep 2
-               ;;
-            0) exit 0 ;;
-            *) echo -e "\${RED}Invalid option\${NC}"; sleep 1 ;;
-        esac
-    done
-}
-
-# If arguments are passed, we could handle them, otherwise show menu
-menu
 `;
 };

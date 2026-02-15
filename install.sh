@@ -60,6 +60,19 @@ function install_bot() {
     read -p "Enter Telegram Bot Token: " BOT_TOKEN
     read -p "Enter Main Admin (Owner) Numeric ID: " ADMIN_ID
     
+    # Proxy Prompt
+    echo ""
+    echo -e "${YELLOW}If your server is in IRAN, you likely need a proxy.${NC}"
+    read -p "Do you want to configure a Proxy? [y/N]: " USE_PROXY
+    PROXY_ENV=""
+    if [[ "$USE_PROXY" =~ ^[Yy]$ ]]; then
+        echo -e "${CYAN}Example: http://127.0.0.1:10809 (v2ray) or socks5://127.0.0.1:9050${NC}"
+        read -p "Enter Proxy URL: " PROXY_URL
+        if [ ! -z "$PROXY_URL" ]; then
+             PROXY_ENV="Environment=\"PROXY_URL=$PROXY_URL\""
+        fi
+    fi
+    
     # Create Directory
     if [ ! -d "$DIR" ]; then
         mkdir -p "$DIR"
@@ -122,6 +135,7 @@ User=root
 WorkingDirectory=$DIR
 ExecStart=$DIR/venv/bin/python $DIR/bot.py
 Restart=always
+$PROXY_ENV
 
 [Install]
 WantedBy=multi-user.target
@@ -145,6 +159,7 @@ function menu() {
         echo "2) Update Bot (git pull)"
         echo "3) Restart Service"
         echo "4) Uninstall"
+        echo "5) Check Bot Logs (Debug)"
         echo "0) Exit"
         echo ""
         read -p "Select option: " choice
@@ -170,6 +185,10 @@ function menu() {
                rm -rf "$DIR"
                echo -e "${RED}Uninstalled.${NC}"
                sleep 2
+               ;;
+            5)
+               echo -e "${YELLOW}Showing logs... Press Ctrl+C to exit logs.${NC}"
+               journalctl -u $SERVICE_NAME -f
                ;;
             0) exit 0 ;;
             *) echo -e "${RED}Invalid option${NC}"; sleep 1 ;;

@@ -29,7 +29,9 @@ export interface ChatMessage {
 
 export interface InlineButton {
   text: string;
-  callbackData: string;
+  callbackData?: string;
+  webAppUrl?: string; // New field for Web App
+  url?: string;       // New field for external links
 }
 
 export enum BotState {
