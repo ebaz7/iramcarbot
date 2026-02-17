@@ -36,7 +36,7 @@ function install_dependencies() {
     echo -e "${BLUE}📦 Installing System Dependencies...${NC}"
     check_root
     sudo apt-get update
-    sudo apt-get install -y python3 python3-pip python3-venv git
+    sudo apt-get install -y python3 python3-pip python3-venv git curl
 }
 
 function setup_environment() {
@@ -171,25 +171,91 @@ function create_shortcut() {
 
 # --- Backup/Restore Functions ---
 
-function do_backup() {
-    echo -e "${BLUE}💾 Backing up Data...${NC}"
-    if [ ! -f "$INSTALL_DIR/bot_data.json" ]; then
-        echo -e "${RED}❌ No database found to backup (bot_data.json is missing).${NC}"
+function send_backup_to_telegram() {
+    echo -e "${BLUE}📤 Sending Backup to Telegram...${NC}"
+    
+    if [ ! -f "$INSTALL_DIR/bot.py" ]; then
+         echo -e "${RED}❌ bot.py not found. Cannot read credentials.${NC}"
+         pause
+         return
+    fi
+
+    # Extract Token (assumes TOKEN = '...')
+    BOT_TOKEN=$(grep "TOKEN =" "$INSTALL_DIR/bot.py" | cut -d "'" -f 2)
+    
+    # Extract Admin ID (assumes OWNER_ID = 123... # comment)
+    # logic: grep line -> remove 'OWNER_ID =' -> remove spaces -> remove comments after #
+    ADMIN_ID=$(grep "OWNER_ID =" "$INSTALL_DIR/bot.py" | sed 's/OWNER_ID =//' | sed 's/ //g' | cut -d '#' -f 1)
+    
+    if [[ -z "$BOT_TOKEN" || -z "$ADMIN_ID" || "$BOT_TOKEN" == "REPLACE_ME_TOKEN" ]]; then
+        echo -e "${RED}❌ Bot credentials not found or not configured properly.${NC}"
         pause
         return
     fi
+
+    DATA_FILE="$INSTALL_DIR/bot_data.json"
+    if [ ! -f "$DATA_FILE" ]; then
+        echo -e "${RED}❌ Data file (bot_data.json) not found.${NC}"
+        pause
+        return
+    fi
+
+    CAPTION="💾 Manual Backup from Server Panel - $(date)"
+
+    # Send using curl
+    response=$(curl -s -F chat_id="$ADMIN_ID" -F document=@"$DATA_FILE" -F caption="$CAPTION" "https://api.telegram.org/bot$BOT_TOKEN/sendDocument")
     
-    BACKUP_DIR="$HOME/carbot_backups"
-    mkdir -p "$BACKUP_DIR"
-    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-    DEST="$BACKUP_DIR/backup_$TIMESTAMP.json"
-    
-    cp "$INSTALL_DIR/bot_data.json" "$DEST"
-    
-    echo -e "${GREEN}✅ Backup created successfully!${NC}"
-    echo "Location: $DEST"
-    echo -e "\n(Use SFTP to download this file if you want to move it to another server)"
+    if [[ "$response" == *"\"ok\":true"* ]]; then
+        echo -e "${GREEN}✅ Backup sent to Telegram (Admin ID: $ADMIN_ID) successfully!${NC}"
+    else
+        echo -e "${RED}❌ Failed to send backup.${NC}"
+        echo "Response: $response"
+        echo "Debug: Token starts with ${BOT_TOKEN:0:5}..."
+    fi
     pause
+}
+
+function do_backup() {
+    while true; do
+        clear
+        echo -e "${BLUE}========================================${NC}"
+        echo -e "${GREEN}      💾 Backup Management      ${NC}"
+        echo -e "${BLUE}========================================${NC}"
+        echo -e "1) ${GREEN}Local Backup${NC} (Save to $HOME/carbot_backups)"
+        echo -e "2) ${YELLOW}Send to Telegram${NC} (Send file to Admin)"
+        echo -e "0) Back to Main Menu"
+        echo -e "${BLUE}========================================${NC}"
+        read -p "Select an option: " subchoice
+
+        case $subchoice in
+            1)
+                echo -e "${BLUE}💾 Backing up locally...${NC}"
+                if [ ! -f "$INSTALL_DIR/bot_data.json" ]; then
+                    echo -e "${RED}❌ No database found (bot_data.json is missing).${NC}"
+                    pause
+                else
+                    BACKUP_DIR="$HOME/carbot_backups"
+                    mkdir -p "$BACKUP_DIR"
+                    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+                    DEST="$BACKUP_DIR/backup_$TIMESTAMP.json"
+                    cp "$INSTALL_DIR/bot_data.json" "$DEST"
+                    echo -e "${GREEN}✅ Backup created: $DEST${NC}"
+                    echo -e "(You can download this via SFTP)"
+                    pause
+                fi
+                ;;
+            2)
+                send_backup_to_telegram
+                ;;
+            0)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option.${NC}"
+                pause
+                ;;
+        esac
+    done
 }
 
 function do_restore() {
@@ -255,11 +321,24 @@ function do_update() {
     echo "1. Pulling from Git..."
     git pull
     
-    echo "2. Restarting Service..."
+    echo "2. Updating Menu Script..."
+    # SELF-UPDATE LOGIC:
+    # If the repo contains 'install.sh', we overwrite the current 'manager.sh'
+    # so the new menu options (Backup, Restore, Uninstall) appear immediately.
+    if [ -f "install.sh" ]; then
+        cp "install.sh" "manager.sh"
+        chmod +x "manager.sh"
+        echo -e "${GREEN}✅ Menu script updated successfully.${NC}"
+    else
+        echo -e "${YELLOW}⚠️  install.sh not found in repo. Menu options might not update.${NC}"
+    fi
+    
+    echo "3. Restarting Service..."
     check_root
     sudo systemctl restart $SERVICE_NAME
     
     echo -e "${GREEN}✅ Update Complete.${NC}"
+    echo -e "${YELLOW}ℹ️  NOTE: If you don't see new options, Exit (0) and run 'carbot' again.${NC}"
     pause
 }
 
