@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BotState, ChatMessage, InlineButton, EstimateData } from '../types';
 import { CAR_DB, YEARS, PAINT_CONDITIONS } from '../constants';
-import { Send, Menu, ArrowLeft, RefreshCw, ShieldAlert, Users, Megaphone, Star, Upload, FileSpreadsheet, Download, Clock, Filter, Phone, UserPlus, Globe, Database, Save } from 'lucide-react';
+import { Send, Menu, ArrowLeft, RefreshCw, ShieldAlert, Users, Megaphone, Star, Upload, FileSpreadsheet, Download, Clock, Filter, Phone, UserPlus, Globe, Database, Save, Settings } from 'lucide-react';
+
+// Default Config similar to Python
+const DEFAULT_MENU_CONFIG: any = {
+    "calc": {"label": "🧮 ماشین‌حساب", "url": "https://www.hamrah-mechanic.com/carprice/", "active": true, "type": "webapp"},
+    "market": {"label": "🌐 قیمت بازار", "url": "https://www.iranjib.ir/showgroup/45/", "active": true, "type": "webapp"},
+    "prices": {"label": "📋 لیست قیمت", "active": true, "type": "internal"},
+    "estimate": {"label": "💰 تخمین قیمت", "active": true, "type": "internal"},
+    "search": {"label": "🔍 جستجو", "active": true, "type": "internal"},
+    "support": {"label": "📞 پشتیبانی", "active": true, "type": "internal"}
+};
 
 const TelegramMock: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -19,6 +29,9 @@ const TelegramMock: React.FC = () => {
   const [lastUpdate, setLastUpdate] = useState<string>(new Date().toLocaleString('fa-IR'));
   const [backupInterval, setBackupInterval] = useState<number>(0);
   
+  // Menu Config State (Dynamic)
+  const [menuConfig, setMenuConfig] = useState(DEFAULT_MENU_CONFIG);
+  
   const [tempAdminData, setTempAdminData] = useState<any>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -35,7 +48,7 @@ const TelegramMock: React.FC = () => {
     if (messages.length === 0) {
       addBotMessage(getWelcomeMessage(), getMainMenuButtons());
     }
-  }, [isAdminMode]); // Re-render menu if admin mode changes
+  }, [isAdminMode, menuConfig]); // Re-render menu if config changes
 
   const getWelcomeMessage = () => {
       const today = new Date().toLocaleDateString('fa-IR');
@@ -43,23 +56,26 @@ const TelegramMock: React.FC = () => {
   }
 
   const getMainMenuButtons = (): InlineButton[][] => {
-      const buttons = [
-        // Web Apps Row
-        [
-            { text: "🧮 ماشین‌حساب (سایت)", webAppUrl: "https://www.hamrah-mechanic.com/carprice/" },
-            { text: "🌐 قیمت بازار (سایت)", webAppUrl: "https://www.iranjib.ir/showgroup/45/%D9%82%DB%8C%D9%85%D8%AA-%D8%AE%D9%88%D8%AF%D8%B1%D9%88-%D8%AA%D9%88%D9%84%DB%8C%D8%AF-%D8%AF%D8%A7%D8%AE%D9%84/" }
-        ],
-        // Internal Bot Features Row
-        [
-            { text: "📋 لیست قیمت (ربات)", callbackData: "menu_prices" }, // Uses Internal DB/Excel
-            { text: "💰 تخمین قیمت (ربات)", callbackData: "menu_estimate" } // Uses Internal DB
-        ],
-        // Utilities Row
-        [
-            { text: "🔍 جستجو", callbackData: "menu_search" }, 
-            { text: "📞 پشتیبانی", callbackData: "menu_support" }
-        ]
-      ];
+      const buttons: InlineButton[][] = [];
+      const c = menuConfig;
+
+      // Row 1: Web Apps
+      const row1 = [];
+      if (c["calc"].active) row1.push({ text: c["calc"].label, webAppUrl: c["calc"].url });
+      if (c["market"].active) row1.push({ text: c["market"].label, webAppUrl: c["market"].url });
+      if (row1.length > 0) buttons.push(row1);
+
+      // Row 2: Internal Features
+      const row2 = [];
+      if (c["prices"].active) row2.push({ text: c["prices"].label, callbackData: "menu_prices" });
+      if (c["estimate"].active) row2.push({ text: c["estimate"].label, callbackData: "menu_estimate" });
+      if (row2.length > 0) buttons.push(row2);
+
+      // Row 3: Utilities
+      const row3 = [];
+      if (c["search"].active) row3.push({ text: c["search"].label, callbackData: "menu_search" });
+      if (c["support"].active) row3.push({ text: c["support"].label, callbackData: "menu_support" });
+      if (row3.length > 0) buttons.push(row3);
 
       // MAGIC: Automatically add Admin Button if user is Admin
       if (isAdminMode) {
@@ -150,6 +166,7 @@ const TelegramMock: React.FC = () => {
     // --- ADMIN HOME (The Button Handler) ---
     if (callbackData === 'admin_home') {
         addBotMessage("🛠 **پنل مدیریت پیشرفته**\n\nگزینه مورد نظر را انتخاب کنید:", [
+            [{ text: "⚙️ مدیریت دکمه‌ها و منو", callbackData: "admin_menus" }],
             [{ text: "💾 مدیریت بکاپ و دیتابیس", callbackData: "admin_backup_menu" }],
             [{ text: "👥 مدیریت ادمین‌ها", callbackData: "admin_manage_admins" }],
             [{ text: "📂 آپدیت قیمت (اکسل)", callbackData: "admin_update_excel" }],
@@ -160,6 +177,71 @@ const TelegramMock: React.FC = () => {
         ]);
         return;
     }
+
+    // --- ADMIN MENUS ---
+    if (callbackData === "admin_menus") {
+        const keyboard = Object.entries(menuConfig).map(([key, val]: any) => {
+             const status = val.active ? "✅" : "❌";
+             return [{ text: `${status} ${val.label}`, callbackData: `edit_menu_${key}` }];
+        });
+        keyboard.push([{ text: "🔙 بازگشت", callbackData: "admin_home" }]);
+        addBotMessage("⚙️ **مدیریت منو**\n\nکدام دکمه را می‌خواهید ویرایش کنید؟", keyboard);
+        return;
+    }
+
+    if (callbackData.startsWith("edit_menu_")) {
+        const key = callbackData.replace("edit_menu_", "");
+        const c = menuConfig[key];
+        const statusText = c.active ? "فعال ✅" : "غیرفعال ❌";
+        
+        let text = `🔧 ویرایش دکمه: **${c.label}**\nوضعیت فعلی: ${statusText}\n`;
+        if (c.url) text += `لینک فعلی: ${c.url}`;
+
+        const keyboard = [
+            [{ text: "✏️ تغییر نام دکمه", callbackData: `menu_set_label_${key}` }],
+            [{ text: "👁️ تغییر وضعیت (روشن/خاموش)", callbackData: `menu_toggle_${key}` }]
+        ];
+        if (c.url) {
+            keyboard.push([{ text: "🔗 تغییر لینک", callbackData: `menu_set_url_${key}` }]);
+        }
+        keyboard.push([{ text: "🔙 بازگشت", callbackData: "admin_menus" }]);
+        
+        addBotMessage(text, keyboard);
+        return;
+    }
+
+    if (callbackData.startsWith("menu_toggle_")) {
+        const key = callbackData.replace("menu_toggle_", "");
+        setMenuConfig((prev: any) => ({
+            ...prev,
+            [key]: { ...prev[key], active: !prev[key].active }
+        }));
+        // Re-simulate pressing edit menu to refresh view
+        const newStatus = !menuConfig[key].active ? "✅ فعال" : "❌ غیرفعال";
+        // Small delay to make it feel like an interaction
+        setTimeout(() => {
+             // In real bot we answer callback query then refresh message. Here we just add new message for simulation context
+             addBotMessage(`دکمه ${newStatus} شد. بازگشت به تنظیمات...`);
+             // Simulate "going back" to edit screen
+             setTimeout(() => handleCallback({ text: "", callbackData: `edit_menu_${key}` }), 500);
+        }, 300);
+        return;
+    }
+
+    if (callbackData.startsWith("menu_set_label_")) {
+        const key = callbackData.replace("menu_set_label_", "");
+        setTempAdminData({ mode: 'EDIT_MENU_LABEL', key: key });
+        addBotMessage("✍️ نام جدید برای این دکمه را وارد کنید:");
+        return;
+    }
+
+    if (callbackData.startsWith("menu_set_url_")) {
+        const key = callbackData.replace("menu_set_url_", "");
+        setTempAdminData({ mode: 'EDIT_MENU_URL', key: key });
+        addBotMessage("🔗 لینک جدید را وارد کنید (باید با https شروع شود):");
+        return;
+    }
+
 
     // --- BACKUP MANAGEMENT ---
     if (callbackData === 'admin_backup_menu') {
@@ -470,6 +552,7 @@ const TelegramMock: React.FC = () => {
         // Also simulate the bot response for the command
         if (!isAdminMode) {
              addBotMessage("🛠 **پنل مدیریت پیشرفته**\n\nگزینه مورد نظر را انتخاب کنید:", [
+                [{ text: "⚙️ مدیریت دکمه‌ها و منو", callbackData: "admin_menus" }],
                 [{ text: "💾 مدیریت بکاپ و دیتابیس", callbackData: "admin_backup_menu" }],
                 [{ text: "👥 مدیریت ادمین‌ها", callbackData: "admin_manage_admins" }],
                 [{ text: "📂 آپدیت قیمت (اکسل)", callbackData: "admin_update_excel" }],
@@ -500,6 +583,32 @@ const TelegramMock: React.FC = () => {
     }
 
     if (isAdminMode && tempAdminData.mode) {
+        // MENU EDITING
+        if (tempAdminData.mode === 'EDIT_MENU_LABEL') {
+            const key = tempAdminData.key;
+            setMenuConfig((prev: any) => ({
+                ...prev,
+                [key]: { ...prev[key], label: txt }
+            }));
+            addBotMessage(`✅ نام دکمه تغییر کرد به: ${txt}`, [[{ text: "🔙 مدیریت منو", callbackData: "admin_menus" }]]);
+            setTempAdminData({});
+            return;
+        }
+        if (tempAdminData.mode === 'EDIT_MENU_URL') {
+            const key = tempAdminData.key;
+             if (!txt.startsWith("http")) {
+                addBotMessage("❌ لینک نامعتبر است. با http یا https شروع کنید.");
+                return;
+            }
+            setMenuConfig((prev: any) => ({
+                ...prev,
+                [key]: { ...prev[key], url: txt }
+            }));
+            addBotMessage(`✅ لینک دکمه تغییر کرد.`, [[{ text: "🔙 مدیریت منو", callbackData: "admin_menus" }]]);
+            setTempAdminData({});
+            return;
+        }
+
         if (tempAdminData.mode === 'UPLOAD_EXCEL') {
             setLastUpdate(new Date().toLocaleString('fa-IR'));
             addBotMessage(`✅ فایل دریافت شد!\n🔄 دیتابیس قیمت‌ها با موفقیت بروزرسانی شد.\n🕒 زمان ثبت: ${new Date().toLocaleTimeString('fa-IR')}`, [[{ text: "🔙 منوی مدیریت", callbackData: "admin_home" }]]);
