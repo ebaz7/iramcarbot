@@ -4,6 +4,10 @@ import { CAR_DB } from '../constants';
 export const generateBashScript = (repoUrl: string): string => {
   return `#!/bin/bash
 
+# ==========================================
+# 🚗 Iran Car Bot Manager
+# ==========================================
+
 # Configuration
 INSTALL_DIR="$HOME/carbot"
 SERVICE_NAME="carbot"
@@ -22,13 +26,16 @@ function pause() {
     read -p "Press [Enter] key to continue..."
 }
 
+function check_root() {
+    if [ "$EUID" -ne 0 ]; then 
+        echo -e "\${YELLOW}⚠️  Requesting sudo permissions... (Please enter password if asked)\${NC}"
+        sudo -v
+    fi
+}
+
 function install_dependencies() {
     echo -e "\${BLUE}📦 Installing System Dependencies...\${NC}"
-    # Check if we are root or have sudo
-    if [ "$EUID" -ne 0 ]; then 
-        echo -e "\${YELLOW}Please enter your password for sudo access to install packages:\${NC}"
-    fi
-    
+    check_root
     sudo apt-get update
     sudo apt-get install -y python3 python3-pip python3-venv git
 }
@@ -36,25 +43,31 @@ function install_dependencies() {
 function setup_environment() {
     echo -e "\${BLUE}📂 Setting up Directory: \$INSTALL_DIR \${NC}"
     
-    # Create dir if not exists
-    if [ ! -d "\$INSTALL_DIR" ]; then
-        mkdir -p "\$INSTALL_DIR"
-        echo "Created directory."
+    # Logic to fix "bot.py not found" error:
+    # If directory exists but .git is missing, it's corrupt/empty. Remove it.
+    if [ -d "\$INSTALL_DIR" ] && [ ! -d "\$INSTALL_DIR/.git" ]; then
+        echo -e "\${YELLOW}⚠️  Found corrupt or empty directory. Cleaning up...\${NC}"
+        rm -rf "\$INSTALL_DIR"
     fi
-    
-    cd "\$INSTALL_DIR"
 
     # Clone or Pull
-    if [ -d ".git" ]; then
+    if [ -d "\$INSTALL_DIR/.git" ]; then
         echo -e "\${GREEN}🔄 Repository exists. Pulling latest changes...\${NC}"
+        cd "\$INSTALL_DIR"
         git pull
     else
         echo -e "\${GREEN}⬇️  Cloning repository from \$REPO_URL...\${NC}"
-        # Check if directory is empty, if not, warn
-        if [ "\$(ls -A \$INSTALL_DIR)" ]; then
-             echo -e "\${YELLOW}Warning: Directory is not empty but no .git found. Trying to clone anyway...\${NC}"
-        fi
-        git clone "\$REPO_URL" .
+        git clone "\$REPO_URL" "\$INSTALL_DIR"
+        cd "\$INSTALL_DIR"
+    fi
+
+    # Verify download
+    if [ ! -f "bot.py" ]; then
+        echo -e "\${RED}❌ Critical Error: bot.py still not found after cloning! \${NC}"
+        echo "Please check your GitHub repository content."
+        echo "Repo URL: \$REPO_URL"
+        pause
+        return 1
     fi
 
     # Virtual Env
@@ -72,29 +85,35 @@ function setup_environment() {
 
 function configure_bot() {
     cd "\$INSTALL_DIR"
-    if [ ! -f "bot.py" ]; then
-        echo -e "\${RED}❌ Critical Error: bot.py not found in \$INSTALL_DIR! \${NC}"
-        echo "Please make sure you have uploaded 'bot.py' to your GitHub repository."
-        pause
-        return
+    
+    echo -e "\n\${BLUE}⚙️  Bot Configuration \${NC}"
+    echo "------------------------------------------------"
+    
+    # Check if already configured to avoid re-typing
+    if grep -q "REPLACE_ME_TOKEN" bot.py; then
+        read -p "Enter your Telegram Bot Token: " BOT_TOKEN
+        read -p "Enter your Numeric Admin ID (from @userinfobot): " ADMIN_ID
+        
+        # Replace in bot.py using sed
+        sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
+        sed -i "s/OWNER_ID = 0/OWNER_ID = \$ADMIN_ID/g" bot.py
+        
+        echo -e "\${GREEN}✅ Configuration saved.\${NC}"
+    else
+        echo -e "\${GREEN}✅ Bot is already configured.\${NC}"
+        read -p "Do you want to re-configure keys? (y/n): " RECONF
+        if [[ "\$RECONF" == "y" ]]; then
+             read -p "Enter NEW Telegram Bot Token: " BOT_TOKEN
+             read -p "Enter NEW Numeric Admin ID: " ADMIN_ID
+             
+             # Reset file first (simple trick: we can't easily undo sed, so we rely on git reset)
+             git checkout bot.py
+             sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
+             sed -i "s/OWNER_ID = 0/OWNER_ID = \$ADMIN_ID/g" bot.py
+             echo -e "\${GREEN}✅ Configuration updated.\${NC}"
+        fi
     fi
-
-    echo -e "\${BLUE}⚙️  Bot Configuration \${NC}"
     echo "------------------------------------------------"
-    read -p "Enter your Telegram Bot Token: " BOT_TOKEN
-    read -p "Enter your Numeric Admin ID (from @userinfobot): " ADMIN_ID
-    echo "------------------------------------------------"
-
-    # Replace in bot.py using sed
-    # We use temporary file to ensure atomic write or standard sed -i
-    sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
-    
-    # Reset Owner ID if previously set or just default
-    sed -i "s/OWNER_ID = 0/OWNER_ID = \$ADMIN_ID/g" bot.py
-    # Also catch if it was already set to something else but user wants to change (simple regex)
-    # This might need a more complex regex if re-running, but for fresh install it works.
-    
-    echo -e "\${GREEN}✅ Configuration updated locally.\${NC}"
 }
 
 function setup_service() {
@@ -132,9 +151,8 @@ function create_shortcut() {
     # Create a global command 'carbot' that runs this script
     echo -e "\${BLUE}🔗 Creating global command 'carbot'...\${NC}"
     
-    # Save this script to the install dir as 'manager.sh' if it's not there
-    # (In case user ran from pipe)
-    cat "\$0" > "\$INSTALL_DIR/manager.sh"
+    # We copy THIS script to the install dir as 'manager.sh'
+    cp "\$0" "\$INSTALL_DIR/manager.sh"
     chmod +x "\$INSTALL_DIR/manager.sh"
     
     sudo ln -sf "\$INSTALL_DIR/manager.sh" /usr/local/bin/carbot
@@ -145,24 +163,36 @@ function create_shortcut() {
 # --- Menu Functions ---
 
 function do_install() {
-    echo -e "\${BLUE}🚀 Starting Installation...\${NC}"
+    echo -e "\${BLUE}🚀 Starting Installation / Re-Installation...\${NC}"
     install_dependencies
     setup_environment
-    configure_bot
-    setup_service
-    create_shortcut
-    echo -e "\n\${GREEN}🎉 Installation Complete! \${NC}"
+    if [ $? -eq 0 ]; then
+        configure_bot
+        setup_service
+        create_shortcut
+        echo -e "\n\${GREEN}🎉 Installation Complete! Bot is running. \${NC}"
+    else
+        echo -e "\n\${RED}❌ Installation Failed. \${NC}"
+    fi
     pause
 }
 
 function do_update() {
     echo -e "\${BLUE}🔄 Updating Bot...\${NC}"
+    
+    if [ ! -d "\$INSTALL_DIR" ]; then
+        echo -e "\${RED}Bot is not installed yet. Please Install first.\${NC}"
+        pause
+        return
+    fi
+    
     cd "\$INSTALL_DIR"
     
     echo "1. Pulling from Git..."
     git pull
     
     echo "2. Restarting Service..."
+    check_root
     sudo systemctl restart \$SERVICE_NAME
     
     echo -e "\${GREEN}✅ Update Complete.\${NC}"
@@ -198,7 +228,7 @@ while true; do
     echo -e "\${BLUE}========================================\${NC}"
     echo -e "\${GREEN}      🚗 Iran Car Bot Manager 🚗      \${NC}"
     echo -e "\${BLUE}========================================\${NC}"
-    echo -e "1) \${GREEN}Install / Reinstall\${NC} (Full Setup)"
+    echo -e "1) \${GREEN}Install / Reinstall\${NC} (Fixes 'bot.py not found')"
     echo -e "2) \${YELLOW}Update Bot\${NC} (Git Pull & Restart)"
     echo -e "3) View Logs"
     echo -e "4) Check Status"

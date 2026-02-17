@@ -1,82 +1,136 @@
 #!/bin/bash
 
+# ==========================================
+# 🚗 Iran Car Bot Manager
+# ==========================================
+
+# Configuration
+INSTALL_DIR="$HOME/carbot"
+SERVICE_NAME="carbot"
+# This will be replaced by the user's specific URL if they copy from web app, 
+# otherwise default to a placeholder that needs changing or general repo.
+# Since this file is static in the project, we put a placeholder or generic.
+REPO_URL="https://github.com/ebaz7/iramcarbot" 
+
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}🚀 Starting Iran Car Bot Installation...${NC}"
+# --- Helper Functions ---
 
-# 1. Update System
-echo -e "${GREEN}📦 Updating system packages...${NC}"
-sudo apt-get update
-sudo apt-get install -y python3 python3-pip python3-venv git
+function pause() {
+    read -p "Press [Enter] key to continue..."
+}
 
-# 2. Setup Directory
-echo -e "${GREEN}📂 Setting up directory...${NC}"
-mkdir -p ~/carbot
-cd ~/carbot
+function check_root() {
+    if [ "$EUID" -ne 0 ]; then 
+        echo -e "${YELLOW}⚠️  Requesting sudo permissions... (Please enter password if asked)${NC}"
+        sudo -v
+    fi
+}
 
-# 3. Download Files
-echo -e "${GREEN}⬇️  Downloading bot files from GitHub...${NC}"
-if [ -d ".git" ]; then
-    echo "Repo exists, pulling changes..."
-    git pull
-else
-    # Clone the repo provided by the user (Assumes you are in the repo)
-    echo "Using current directory or manual clone expected."
-fi
+function install_dependencies() {
+    echo -e "${BLUE}📦 Installing System Dependencies...${NC}"
+    check_root
+    sudo apt-get update
+    sudo apt-get install -y python3 python3-pip python3-venv git
+}
 
-# Check if bot.py exists
-if [ ! -f "bot.py" ]; then
-    echo -e "${RED}❌ Error: bot.py not found in the repository!${NC}"
-    echo "Please upload 'bot.py' and 'install.sh' to your GitHub repository first."
-    exit 1
-fi
+function setup_environment() {
+    echo -e "${BLUE}📂 Setting up Directory: $INSTALL_DIR ${NC}"
+    
+    # Logic to fix "bot.py not found" error:
+    # If directory exists but .git is missing, it's corrupt/empty. Remove it.
+    if [ -d "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR/.git" ]; then
+        echo -e "${YELLOW}⚠️  Found corrupt or empty directory. Cleaning up...${NC}"
+        rm -rf "$INSTALL_DIR"
+    fi
 
-# 4. Setup Python Environment
-echo -e "${GREEN}🐍 Setting up virtual environment...${NC}"
-python3 -m venv venv
-source venv/bin/activate
+    # Clone or Pull
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        echo -e "${GREEN}🔄 Repository exists. Pulling latest changes...${NC}"
+        cd "$INSTALL_DIR"
+        git pull
+    else
+        echo -e "${GREEN}⬇️  Cloning repository from $REPO_URL...${NC}"
+        git clone "$REPO_URL" "$INSTALL_DIR"
+        cd "$INSTALL_DIR"
+    fi
 
-# 5. Install Dependencies
-echo -e "${GREEN}📚 Installing libraries...${NC}"
-pip install --upgrade pip
-pip install python-telegram-bot pandas openpyxl jdatetime
+    # Verify download
+    if [ ! -f "bot.py" ]; then
+        echo -e "${RED}❌ Critical Error: bot.py still not found after cloning! ${NC}"
+        echo "Please check your GitHub repository content."
+        echo "Repo URL: $REPO_URL"
+        pause
+        return 1
+    fi
 
-# 6. Configure Bot (Crucial Step for Admin Access)
-echo -e "${BLUE}⚙️  Configuration${NC}"
-echo "------------------------------------------------"
-read -p "Enter your Telegram Bot Token: " BOT_TOKEN
-read -p "Enter your Numeric Admin ID (from @userinfobot): " ADMIN_ID
-echo "------------------------------------------------"
+    # Virtual Env
+    if [ ! -d "venv" ]; then
+        echo -e "${GREEN}🐍 Creating Python Virtual Environment...${NC}"
+        python3 -m venv venv
+    fi
+    
+    source venv/bin/activate
+    
+    echo -e "${GREEN}📚 Installing Python Libraries...${NC}"
+    pip install --upgrade pip
+    pip install python-telegram-bot pandas openpyxl jdatetime
+}
 
-# Replace credentials in bot.py
-# 1. Set Token
-sed -i "s/REPLACE_ME_TOKEN/$BOT_TOKEN/g" bot.py
+function configure_bot() {
+    cd "$INSTALL_DIR"
+    
+    echo -e "\n${BLUE}⚙️  Bot Configuration ${NC}"
+    echo "------------------------------------------------"
+    
+    # Check if already configured to avoid re-typing
+    if grep -q "REPLACE_ME_TOKEN" bot.py; then
+        read -p "Enter your Telegram Bot Token: " BOT_TOKEN
+        read -p "Enter your Numeric Admin ID (from @userinfobot): " ADMIN_ID
+        
+        # Replace in bot.py using sed
+        sed -i "s/REPLACE_ME_TOKEN/$BOT_TOKEN/g" bot.py
+        sed -i "s/OWNER_ID = 0/OWNER_ID = $ADMIN_ID/g" bot.py
+        
+        echo -e "${GREEN}✅ Configuration saved.${NC}"
+    else
+        echo -e "${GREEN}✅ Bot is already configured.${NC}"
+        read -p "Do you want to re-configure keys? (y/n): " RECONF
+        if [[ "$RECONF" == "y" ]]; then
+             read -p "Enter NEW Telegram Bot Token: " BOT_TOKEN
+             read -p "Enter NEW Numeric Admin ID: " ADMIN_ID
+             
+             # Reset file first (simple trick: we can't easily undo sed, so we rely on git reset)
+             git checkout bot.py
+             sed -i "s/REPLACE_ME_TOKEN/$BOT_TOKEN/g" bot.py
+             sed -i "s/OWNER_ID = 0/OWNER_ID = $ADMIN_ID/g" bot.py
+             echo -e "${GREEN}✅ Configuration updated.${NC}"
+        fi
+    fi
+    echo "------------------------------------------------"
+}
 
-# 2. Set Owner ID (This grants full Admin access)
-# Replaces 'OWNER_ID = 0' with 'OWNER_ID = 123456789'
-sed -i "s/OWNER_ID = 0/OWNER_ID = $ADMIN_ID/g" bot.py
+function setup_service() {
+    echo -e "${BLUE}🤖 Setting up Systemd Service...${NC}"
+    
+    SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
+    CURRENT_USER=$(whoami)
+    PYTHON_EXEC="$INSTALL_DIR/venv/bin/python"
 
-echo -e "${GREEN}✅ Admin ID set to $ADMIN_ID. You now have full ownership permissions.${NC}"
-
-# 7. Setup Systemd Service (Auto-Restart)
-echo -e "${GREEN}🤖 Creating background service...${NC}"
-SERVICE_FILE="/etc/systemd/system/carbot.service"
-CURRENT_USER=$(whoami)
-WORKING_DIR=$(pwd)
-PYTHON_EXEC="$WORKING_DIR/venv/bin/python"
-
-sudo bash -c "cat > $SERVICE_FILE" <<EOL
+    # Create Service File
+    sudo bash -c "cat > $SERVICE_FILE" <<EOL
 [Unit]
-Description=Iran Car Price Bot
+Description=Iran Car Price Bot Manager
 After=network.target
 
 [Service]
 User=$CURRENT_USER
-WorkingDirectory=$WORKING_DIR
+WorkingDirectory=$INSTALL_DIR
 ExecStart=$PYTHON_EXEC bot.py
 Restart=always
 RestartSec=5
@@ -85,12 +139,112 @@ RestartSec=5
 WantedBy=multi-user.target
 EOL
 
-# 8. Start Service
-sudo systemctl daemon-reload
-sudo systemctl enable carbot
-sudo systemctl restart carbot
+    sudo systemctl daemon-reload
+    sudo systemctl enable $SERVICE_NAME
+    sudo systemctl restart $SERVICE_NAME
+    
+    echo -e "${GREEN}✅ Service started! ${NC}"
+}
 
-echo -e "${GREEN}✅ Installation Successful!${NC}"
-echo -e "The bot is now running in the background."
-echo -e "Check status: ${BLUE}sudo systemctl status carbot${NC}"
-echo -e "To view logs: ${BLUE}journalctl -u carbot -f${NC}"
+function create_shortcut() {
+    # Create a global command 'carbot' that runs this script
+    echo -e "${BLUE}🔗 Creating global command 'carbot'...${NC}"
+    
+    # We copy THIS script to the install dir as 'manager.sh'
+    cp "$0" "$INSTALL_DIR/manager.sh"
+    chmod +x "$INSTALL_DIR/manager.sh"
+    
+    sudo ln -sf "$INSTALL_DIR/manager.sh" /usr/local/bin/carbot
+    
+    echo -e "${GREEN}✅ Done! You can now type 'carbot' anywhere to open this menu.${NC}"
+}
+
+# --- Menu Functions ---
+
+function do_install() {
+    echo -e "${BLUE}🚀 Starting Installation / Re-Installation...${NC}"
+    install_dependencies
+    setup_environment
+    if [ $? -eq 0 ]; then
+        configure_bot
+        setup_service
+        create_shortcut
+        echo -e "\n${GREEN}🎉 Installation Complete! Bot is running. ${NC}"
+    else
+        echo -e "\n${RED}❌ Installation Failed. ${NC}"
+    fi
+    pause
+}
+
+function do_update() {
+    echo -e "${BLUE}🔄 Updating Bot...${NC}"
+    
+    if [ ! -d "$INSTALL_DIR" ]; then
+        echo -e "${RED}Bot is not installed yet. Please Install first.${NC}"
+        pause
+        return
+    fi
+    
+    cd "$INSTALL_DIR"
+    
+    echo "1. Pulling from Git..."
+    git pull
+    
+    echo "2. Restarting Service..."
+    check_root
+    sudo systemctl restart $SERVICE_NAME
+    
+    echo -e "${GREEN}✅ Update Complete.${NC}"
+    pause
+}
+
+function do_logs() {
+    echo -e "${YELLOW}📜 Showing last 50 lines of logs (Press Ctrl+C to exit logs)...${NC}"
+    journalctl -u $SERVICE_NAME -n 50 -f
+}
+
+function do_status() {
+    sudo systemctl status $SERVICE_NAME
+    pause
+}
+
+function do_restart() {
+    sudo systemctl restart $SERVICE_NAME
+    echo "Bot restarted."
+    pause
+}
+
+function do_stop() {
+    sudo systemctl stop $SERVICE_NAME
+    echo "Bot stopped."
+    pause
+}
+
+# --- Main Menu Loop ---
+
+while true; do
+    clear
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${GREEN}      🚗 Iran Car Bot Manager 🚗      ${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "1) ${GREEN}Install / Reinstall${NC} (Fixes 'bot.py not found')"
+    echo -e "2) ${YELLOW}Update Bot${NC} (Git Pull & Restart)"
+    echo -e "3) View Logs"
+    echo -e "4) Check Status"
+    echo -e "5) Restart Bot"
+    echo -e "6) Stop Bot"
+    echo -e "7) Exit"
+    echo -e "${BLUE}========================================${NC}"
+    read -p "Select an option [1-7]: " choice
+
+    case $choice in
+        1) do_install ;;
+        2) do_update ;;
+        3) do_logs ;;
+        4) do_status ;;
+        5) do_restart ;;
+        6) do_stop ;;
+        7) exit 0 ;;
+        *) echo -e "${RED}Invalid option.${NC}"; pause ;;
+    esac
+done
