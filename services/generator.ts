@@ -170,6 +170,61 @@ function create_shortcut() {
     echo -e "\${GREEN}✅ Done! You can now type 'carbot' anywhere to open this menu.\${NC}"
 }
 
+# --- Backup/Restore Functions ---
+
+function do_backup() {
+    echo -e "\${BLUE}💾 Backing up Data...\${NC}"
+    if [ ! -f "\$INSTALL_DIR/bot_data.json" ]; then
+        echo -e "\${RED}❌ No database found to backup (bot_data.json is missing).\${NC}"
+        pause
+        return
+    fi
+    
+    BACKUP_DIR="\$HOME/carbot_backups"
+    mkdir -p "\$BACKUP_DIR"
+    TIMESTAMP=\$(date +"%Y%m%d_%H%M%S")
+    DEST="\$BACKUP_DIR/backup_\$TIMESTAMP.json"
+    
+    cp "\$INSTALL_DIR/bot_data.json" "\$DEST"
+    
+    echo -e "\${GREEN}✅ Backup created successfully!\${NC}"
+    echo "Location: \$DEST"
+    echo -e "\n(Use SFTP to download this file if you want to move it to another server)"
+    pause
+}
+
+function do_restore() {
+    echo -e "\${BLUE}📥 Restore Data (Import)\${NC}"
+    echo -e "\${YELLOW}⚠️  This will OVERWRITE the current database!\${NC}"
+    echo "To restore, please upload your 'bot_data.json' or backup file to this server first."
+    echo ""
+    read -p "Enter the full path to your backup file (e.g. /root/my_backup.json): " BACKUP_PATH
+    
+    if [ ! -f "\$BACKUP_PATH" ]; then
+        echo -e "\${RED}❌ File not found at \$BACKUP_PATH\${NC}"
+        pause
+        return
+    fi
+    
+    read -p "Are you sure you want to restore? (y/n): " confirm
+    if [[ "\$confirm" == "y" ]]; then
+        echo "Stopping bot..."
+        check_root
+        sudo systemctl stop \$SERVICE_NAME
+        
+        echo "Restoring..."
+        cp "\$BACKUP_PATH" "\$INSTALL_DIR/bot_data.json"
+        
+        echo "Starting bot..."
+        sudo systemctl start \$SERVICE_NAME
+        
+        echo -e "\${GREEN}✅ Restore Complete. Bot is running with new data.\${NC}"
+    else
+        echo "Cancelled."
+    fi
+    pause
+}
+
 # --- Menu Functions ---
 
 function do_install() {
@@ -268,10 +323,12 @@ while true; do
     echo -e "4) Check Status"
     echo -e "5) Restart Bot"
     echo -e "6) Stop Bot"
-    echo -e "7) \${RED}Uninstall Completely\${NC}"
-    echo -e "8) Exit"
+    echo -e "7) \${BLUE}💾 Backup Data\${NC} (Export)"
+    echo -e "8) \${BLUE}📥 Restore Data\${NC} (Import)"
+    echo -e "9) \${RED}Uninstall Completely\${NC}"
+    echo -e "0) Exit"
     echo -e "\${BLUE}========================================\${NC}"
-    read -p "Select an option [1-8]: " choice
+    read -p "Select an option [0-9]: " choice
 
     case \$choice in
         1) do_install ;;
@@ -280,8 +337,10 @@ while true; do
         4) do_status ;;
         5) do_restart ;;
         6) do_stop ;;
-        7) do_uninstall ;;
-        8) exit 0 ;;
+        7) do_backup ;;
+        8) do_restore ;;
+        9) do_uninstall ;;
+        0) exit 0 ;;
         *) echo -e "\${RED}Invalid option.\${NC}"; pause ;;
     esac
 done
@@ -302,7 +361,7 @@ import random
 import jdatetime
 import pandas as pd
 from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 
 # Configuration
@@ -880,105 +939,6 @@ async def est_calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     return ConversationHandler.END
 
-# --- Start & User Commands ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    log_user(user.id)
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("🧮 ماشین حساب حرفه‌ای", web_app=WebAppInfo(url="https://www.hamrah-mechanic.com/carprice/")),
-            InlineKeyboardButton("📋 قیمت روز بازار", web_app=WebAppInfo(url="https://www.iranjib.ir/showgroup/45/%D9%82%DB%8C%D9%85%D8%AA-%D8%AE%D9%88%D8%AF%D8%B1%D9%88-%D8%AA%D9%88%D9%84%DB%8C%D8%AF-%D8%AF%D8%A7%D8%AE%D9%84/"))
-        ],
-        [
-            InlineKeyboardButton("📋 لیست قیمت (ربات)", callback_data='menu_prices'),
-            InlineKeyboardButton("💰 تخمین قیمت (ربات)", callback_data='menu_estimate')
-        ],
-        [
-            InlineKeyboardButton("🔍 جستجو", callback_data='menu_search'),
-            InlineKeyboardButton("📞 پشتیبانی", callback_data='menu_support')
-        ]
-    ]
-    
-    # MAGIC: Automatically add Admin Button if user is Admin
-    if is_admin(user.id):
-        keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data='admin_home')])
-
-    keyboard = attach_footer(keyboard)
-    msg = "👋 منوی اصلی:"
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
-    return ConversationHandler.END
-
-async def get_my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"🆔 شناسه شما: {update.effective_user.id}")
-
-# --- Browsing Handlers (Existing) ---
-async def show_brands(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    cars_db = get_db()
-    if not cars_db:
-         await query.edit_message_text("❌ دیتابیس خالی است. لطفا با ادمین تماس بگیرید.")
-         return
-         
-    keyboard = []
-    brands = list(cars_db.keys())
-    for i in range(0, len(brands), 2):
-        row = [InlineKeyboardButton(brands[i], callback_data=f'brand_{brands[i]}')]
-        if i+1 < len(brands): row.append(InlineKeyboardButton(brands[i+1], callback_data=f'brand_{brands[i+1]}'))
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data='main_menu')])
-    await query.edit_message_text("🏢 برند مورد نظر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def show_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    brand = query.data.replace('brand_', '')
-    cars_db = get_db()
-    
-    if brand not in cars_db:
-        await query.answer("خطا در یافتن اطلاعات", show_alert=True)
-        return
-
-    models = [m['name'] for m in cars_db[brand]['models']]
-    keyboard = [[InlineKeyboardButton(m, callback_data=f'model_{brand}_{m}')] for m in models]
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data='menu_prices')])
-    await query.edit_message_text(f"🚘 مدل‌های {brand}:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def show_variants(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    _, brand, model = query.data.split('_', 2)
-    cars_db = get_db()
-    variants = []
-    for m in cars_db[brand]['models']:
-        if m['name'] == model: variants = m['variants']; break
-    keyboard = [[InlineKeyboardButton(v['name'], callback_data=f'variant_{brand}_{model}_{idx}')] for idx, v in enumerate(variants)]
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f'brand_{brand}')])
-    await query.edit_message_text(f"تیپ {model}:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def show_final_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    parts = query.data.split('_')
-    brand, model, idx = parts[1], parts[2], int(parts[3])
-    cars_db = get_db()
-    variant = None
-    for m in cars_db[brand]['models']:
-        if m['name'] == model: variant = m['variants'][idx]; break
-    if variant:
-        text = f"📊 **{variant['name']}**\\n\\n"
-        text += f"💰 **قیمت بازار:** {variant['marketPrice']} میلیون تومان\\n"
-        text += f"🏭 **قیمت کارخانه:** {variant['factoryPrice']} میلیون تومان\\n\\n"
-        text += f"📅 بروزرسانی: {get_last_update()}"
-        
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f'model_{brand}_{model}')]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
 # --- Startup Logic (Job Queue) ---
 async def post_init(application):
     # Check for auto-backup setting on startup
@@ -986,6 +946,13 @@ async def post_init(application):
     interval = data.get("backup_interval", 0)
     if interval > 0:
         application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=10, name='auto_backup')
+    
+    # SET COMMANDS (MENU)
+    await application.bot.set_my_commands([
+        BotCommand("start", "🏠 منوی اصلی | بازنشانی"),
+        BotCommand("id", "🆔 دریافت شناسه عددی"),
+        BotCommand("admin", "👑 پنل مدیریت")
+    ])
 
 # --- Main ---
 def main():

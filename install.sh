@@ -169,6 +169,61 @@ function create_shortcut() {
     echo -e "${GREEN}✅ Done! You can now type 'carbot' anywhere to open this menu.${NC}"
 }
 
+# --- Backup/Restore Functions ---
+
+function do_backup() {
+    echo -e "${BLUE}💾 Backing up Data...${NC}"
+    if [ ! -f "$INSTALL_DIR/bot_data.json" ]; then
+        echo -e "${RED}❌ No database found to backup (bot_data.json is missing).${NC}"
+        pause
+        return
+    fi
+    
+    BACKUP_DIR="$HOME/carbot_backups"
+    mkdir -p "$BACKUP_DIR"
+    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+    DEST="$BACKUP_DIR/backup_$TIMESTAMP.json"
+    
+    cp "$INSTALL_DIR/bot_data.json" "$DEST"
+    
+    echo -e "${GREEN}✅ Backup created successfully!${NC}"
+    echo "Location: $DEST"
+    echo -e "\n(Use SFTP to download this file if you want to move it to another server)"
+    pause
+}
+
+function do_restore() {
+    echo -e "${BLUE}📥 Restore Data (Import)${NC}"
+    echo -e "${YELLOW}⚠️  This will OVERWRITE the current database!${NC}"
+    echo "To restore, please upload your 'bot_data.json' or backup file to this server first."
+    echo ""
+    read -p "Enter the full path to your backup file (e.g. /root/my_backup.json): " BACKUP_PATH
+    
+    if [ ! -f "$BACKUP_PATH" ]; then
+        echo -e "${RED}❌ File not found at $BACKUP_PATH${NC}"
+        pause
+        return
+    fi
+    
+    read -p "Are you sure you want to restore? (y/n): " confirm
+    if [[ "$confirm" == "y" ]]; then
+        echo "Stopping bot..."
+        check_root
+        sudo systemctl stop $SERVICE_NAME
+        
+        echo "Restoring..."
+        cp "$BACKUP_PATH" "$INSTALL_DIR/bot_data.json"
+        
+        echo "Starting bot..."
+        sudo systemctl start $SERVICE_NAME
+        
+        echo -e "${GREEN}✅ Restore Complete. Bot is running with new data.${NC}"
+    else
+        echo "Cancelled."
+    fi
+    pause
+}
+
 # --- Menu Functions ---
 
 function do_install() {
@@ -267,10 +322,12 @@ while true; do
     echo -e "4) Check Status"
     echo -e "5) Restart Bot"
     echo -e "6) Stop Bot"
-    echo -e "7) ${RED}Uninstall Completely${NC}"
-    echo -e "8) Exit"
+    echo -e "7) ${BLUE}💾 Backup Data${NC} (Export)"
+    echo -e "8) ${BLUE}📥 Restore Data${NC} (Import)"
+    echo -e "9) ${RED}Uninstall Completely${NC}"
+    echo -e "0) Exit"
     echo -e "${BLUE}========================================${NC}"
-    read -p "Select an option [1-8]: " choice
+    read -p "Select an option [0-9]: " choice
 
     case $choice in
         1) do_install ;;
@@ -279,8 +336,10 @@ while true; do
         4) do_status ;;
         5) do_restart ;;
         6) do_stop ;;
-        7) do_uninstall ;;
-        8) exit 0 ;;
+        7) do_backup ;;
+        8) do_restore ;;
+        9) do_uninstall ;;
+        0) exit 0 ;;
         *) echo -e "${RED}Invalid option.${NC}"; pause ;;
     esac
 done

@@ -5,7 +5,7 @@ import random
 import jdatetime
 import pandas as pd
 from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 
 # Configuration
@@ -767,105 +767,6 @@ async def est_calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     return ConversationHandler.END
 
-# --- Start & User Commands ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    log_user(user.id)
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("🧮 ماشین حساب حرفه‌ای", web_app=WebAppInfo(url="https://www.hamrah-mechanic.com/carprice/")),
-            InlineKeyboardButton("📋 قیمت روز بازار", web_app=WebAppInfo(url="https://www.iranjib.ir/showgroup/45/%D9%82%DB%8C%D9%85%D8%AA-%D8%AE%D9%88%D8%AF%D8%B1%D9%88-%D8%AA%D9%88%D9%84%DB%8C%D8%AF-%D8%AF%D8%A7%D8%AE%D9%84/"))
-        ],
-        [
-            InlineKeyboardButton("📋 لیست قیمت (ربات)", callback_data='menu_prices'),
-            InlineKeyboardButton("💰 تخمین قیمت (ربات)", callback_data='menu_estimate')
-        ],
-        [
-            InlineKeyboardButton("🔍 جستجو", callback_data='menu_search'),
-            InlineKeyboardButton("📞 پشتیبانی", callback_data='menu_support')
-        ]
-    ]
-    
-    # MAGIC: Automatically add Admin Button if user is Admin
-    if is_admin(user.id):
-        keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data='admin_home')])
-
-    keyboard = attach_footer(keyboard)
-    msg = "👋 منوی اصلی:"
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
-    return ConversationHandler.END
-
-async def get_my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"🆔 شناسه شما: {update.effective_user.id}")
-
-# --- Browsing Handlers (Existing) ---
-async def show_brands(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    cars_db = get_db()
-    if not cars_db:
-         await query.edit_message_text("❌ دیتابیس خالی است. لطفا با ادمین تماس بگیرید.")
-         return
-         
-    keyboard = []
-    brands = list(cars_db.keys())
-    for i in range(0, len(brands), 2):
-        row = [InlineKeyboardButton(brands[i], callback_data=f'brand_{brands[i]}')]
-        if i+1 < len(brands): row.append(InlineKeyboardButton(brands[i+1], callback_data=f'brand_{brands[i+1]}'))
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data='main_menu')])
-    await query.edit_message_text("🏢 برند مورد نظر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def show_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    brand = query.data.replace('brand_', '')
-    cars_db = get_db()
-    
-    if brand not in cars_db:
-        await query.answer("خطا در یافتن اطلاعات", show_alert=True)
-        return
-
-    models = [m['name'] for m in cars_db[brand]['models']]
-    keyboard = [[InlineKeyboardButton(m, callback_data=f'model_{brand}_{m}')] for m in models]
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data='menu_prices')])
-    await query.edit_message_text(f"🚘 مدل‌های {brand}:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def show_variants(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    _, brand, model = query.data.split('_', 2)
-    cars_db = get_db()
-    variants = []
-    for m in cars_db[brand]['models']:
-        if m['name'] == model: variants = m['variants']; break
-    keyboard = [[InlineKeyboardButton(v['name'], callback_data=f'variant_{brand}_{model}_{idx}')] for idx, v in enumerate(variants)]
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f'brand_{brand}')])
-    await query.edit_message_text(f"تیپ {model}:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def show_final_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    parts = query.data.split('_')
-    brand, model, idx = parts[1], parts[2], int(parts[3])
-    cars_db = get_db()
-    variant = None
-    for m in cars_db[brand]['models']:
-        if m['name'] == model: variant = m['variants'][idx]; break
-    if variant:
-        text = f"📊 **{variant['name']}**\\n\\n"
-        text += f"💰 **قیمت بازار:** {variant['marketPrice']} میلیون تومان\\n"
-        text += f"🏭 **قیمت کارخانه:** {variant['factoryPrice']} میلیون تومان\\n\\n"
-        text += f"📅 بروزرسانی: {get_last_update()}"
-        
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f'model_{brand}_{model}')]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
 # --- Startup Logic (Job Queue) ---
 async def post_init(application):
     # Check for auto-backup setting on startup
@@ -873,6 +774,13 @@ async def post_init(application):
     interval = data.get("backup_interval", 0)
     if interval > 0:
         application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=10, name='auto_backup')
+    
+    # SET COMMANDS (MENU)
+    await application.bot.set_my_commands([
+        BotCommand("start", "🏠 منوی اصلی | بازنشانی"),
+        BotCommand("id", "🆔 دریافت شناسه عددی"),
+        BotCommand("admin", "👑 پنل مدیریت")
+    ])
 
 # --- Main ---
 def main():
