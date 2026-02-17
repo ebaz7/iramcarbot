@@ -4,83 +4,115 @@ import { CAR_DB } from '../constants';
 export const generateBashScript = (repoUrl: string): string => {
   return `#!/bin/bash
 
+# Configuration
+INSTALL_DIR="$HOME/carbot"
+SERVICE_NAME="carbot"
+REPO_URL="${repoUrl}"
+
 # Colors
 GREEN='\\033[0;32m'
 BLUE='\\033[0;34m'
 RED='\\033[0;31m'
+YELLOW='\\033[1;33m'
 NC='\\033[0m'
 
-echo -e "\${BLUE}🚀 Starting Iran Car Bot Installation...\${NC}"
+# --- Helper Functions ---
 
-# 1. Update System
-echo -e "\${GREEN}📦 Updating system packages...\${NC}"
-sudo apt-get update
-sudo apt-get install -y python3 python3-pip python3-venv git
+function pause() {
+    read -p "Press [Enter] key to continue..."
+}
 
-# 2. Setup Directory
-echo -e "\${GREEN}📂 Setting up directory...\${NC}"
-mkdir -p ~/carbot
-cd ~/carbot
+function install_dependencies() {
+    echo -e "\${BLUE}📦 Installing System Dependencies...\${NC}"
+    # Check if we are root or have sudo
+    if [ "$EUID" -ne 0 ]; then 
+        echo -e "\${YELLOW}Please enter your password for sudo access to install packages:\${NC}"
+    fi
+    
+    sudo apt-get update
+    sudo apt-get install -y python3 python3-pip python3-venv git
+}
 
-# 3. Download Files
-echo -e "\${GREEN}⬇️  Downloading bot files from GitHub...\${NC}"
-if [ -d ".git" ]; then
-    echo "Repo exists, pulling changes..."
-    git pull
-else
-    # Clone the repo provided by the user
-    git clone "${repoUrl}" .
-fi
+function setup_environment() {
+    echo -e "\${BLUE}📂 Setting up Directory: \$INSTALL_DIR \${NC}"
+    
+    # Create dir if not exists
+    if [ ! -d "\$INSTALL_DIR" ]; then
+        mkdir -p "\$INSTALL_DIR"
+        echo "Created directory."
+    fi
+    
+    cd "\$INSTALL_DIR"
 
-# Check if bot.py exists
-if [ ! -f "bot.py" ]; then
-    echo -e "\${RED}❌ Error: bot.py not found in the repository!\${NC}"
-    echo "Please upload 'bot.py' and 'install.sh' to your GitHub repository first."
-    exit 1
-fi
+    # Clone or Pull
+    if [ -d ".git" ]; then
+        echo -e "\${GREEN}🔄 Repository exists. Pulling latest changes...\${NC}"
+        git pull
+    else
+        echo -e "\${GREEN}⬇️  Cloning repository from \$REPO_URL...\${NC}"
+        # Check if directory is empty, if not, warn
+        if [ "\$(ls -A \$INSTALL_DIR)" ]; then
+             echo -e "\${YELLOW}Warning: Directory is not empty but no .git found. Trying to clone anyway...\${NC}"
+        fi
+        git clone "\$REPO_URL" .
+    fi
 
-# 4. Setup Python Environment
-echo -e "\${GREEN}🐍 Setting up virtual environment...\${NC}"
-python3 -m venv venv
-source venv/bin/activate
+    # Virtual Env
+    if [ ! -d "venv" ]; then
+        echo -e "\${GREEN}🐍 Creating Python Virtual Environment...\${NC}"
+        python3 -m venv venv
+    fi
+    
+    source venv/bin/activate
+    
+    echo -e "\${GREEN}📚 Installing Python Libraries...\${NC}"
+    pip install --upgrade pip
+    pip install python-telegram-bot pandas openpyxl jdatetime
+}
 
-# 5. Install Dependencies
-echo -e "\${GREEN}📚 Installing libraries...\${NC}"
-pip install --upgrade pip
-pip install python-telegram-bot pandas openpyxl jdatetime
+function configure_bot() {
+    cd "\$INSTALL_DIR"
+    if [ ! -f "bot.py" ]; then
+        echo -e "\${RED}❌ Critical Error: bot.py not found in \$INSTALL_DIR! \${NC}"
+        echo "Please make sure you have uploaded 'bot.py' to your GitHub repository."
+        pause
+        return
+    fi
 
-# 6. Configure Bot (Crucial Step for Admin Access)
-echo -e "\${BLUE}⚙️  Configuration\${NC}"
-echo "------------------------------------------------"
-read -p "Enter your Telegram Bot Token: " BOT_TOKEN
-read -p "Enter your Numeric Admin ID (from @userinfobot): " ADMIN_ID
-echo "------------------------------------------------"
+    echo -e "\${BLUE}⚙️  Bot Configuration \${NC}"
+    echo "------------------------------------------------"
+    read -p "Enter your Telegram Bot Token: " BOT_TOKEN
+    read -p "Enter your Numeric Admin ID (from @userinfobot): " ADMIN_ID
+    echo "------------------------------------------------"
 
-# Replace credentials in bot.py
-# 1. Set Token
-sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
+    # Replace in bot.py using sed
+    # We use temporary file to ensure atomic write or standard sed -i
+    sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
+    
+    # Reset Owner ID if previously set or just default
+    sed -i "s/OWNER_ID = 0/OWNER_ID = \$ADMIN_ID/g" bot.py
+    # Also catch if it was already set to something else but user wants to change (simple regex)
+    # This might need a more complex regex if re-running, but for fresh install it works.
+    
+    echo -e "\${GREEN}✅ Configuration updated locally.\${NC}"
+}
 
-# 2. Set Owner ID (This grants full Admin access)
-# Replaces 'OWNER_ID = 0' with 'OWNER_ID = 123456789'
-sed -i "s/OWNER_ID = 0/OWNER_ID = \$ADMIN_ID/g" bot.py
+function setup_service() {
+    echo -e "\${BLUE}🤖 Setting up Systemd Service...\${NC}"
+    
+    SERVICE_FILE="/etc/systemd/system/\$SERVICE_NAME.service"
+    CURRENT_USER=\$(whoami)
+    PYTHON_EXEC="\$INSTALL_DIR/venv/bin/python"
 
-echo -e "\${GREEN}✅ Admin ID set to \$ADMIN_ID. You now have full ownership permissions.\${NC}"
-
-# 7. Setup Systemd Service (Auto-Restart)
-echo -e "\${GREEN}🤖 Creating background service...\${NC}"
-SERVICE_FILE="/etc/systemd/system/carbot.service"
-CURRENT_USER=\$(whoami)
-WORKING_DIR=\$(pwd)
-PYTHON_EXEC="\$WORKING_DIR/venv/bin/python"
-
-sudo bash -c "cat > \$SERVICE_FILE" <<EOL
+    # Create Service File
+    sudo bash -c "cat > \$SERVICE_FILE" <<EOL
 [Unit]
-Description=Iran Car Price Bot
+Description=Iran Car Price Bot Manager
 After=network.target
 
 [Service]
 User=\$CURRENT_USER
-WorkingDirectory=\$WORKING_DIR
+WorkingDirectory=\$INSTALL_DIR
 ExecStart=\$PYTHON_EXEC bot.py
 Restart=always
 RestartSec=5
@@ -89,15 +121,104 @@ RestartSec=5
 WantedBy=multi-user.target
 EOL
 
-# 8. Start Service
-sudo systemctl daemon-reload
-sudo systemctl enable carbot
-sudo systemctl restart carbot
+    sudo systemctl daemon-reload
+    sudo systemctl enable \$SERVICE_NAME
+    sudo systemctl restart \$SERVICE_NAME
+    
+    echo -e "\${GREEN}✅ Service started! \${NC}"
+}
 
-echo -e "\${GREEN}✅ Installation Successful!\${NC}"
-echo -e "The bot is now running in the background."
-echo -e "Check status: \${BLUE}sudo systemctl status carbot\${NC}"
-echo -e "To view logs: \${BLUE}journalctl -u carbot -f\${NC}"
+function create_shortcut() {
+    # Create a global command 'carbot' that runs this script
+    echo -e "\${BLUE}🔗 Creating global command 'carbot'...\${NC}"
+    
+    # Save this script to the install dir as 'manager.sh' if it's not there
+    # (In case user ran from pipe)
+    cat "\$0" > "\$INSTALL_DIR/manager.sh"
+    chmod +x "\$INSTALL_DIR/manager.sh"
+    
+    sudo ln -sf "\$INSTALL_DIR/manager.sh" /usr/local/bin/carbot
+    
+    echo -e "\${GREEN}✅ Done! You can now type 'carbot' anywhere to open this menu.\${NC}"
+}
+
+# --- Menu Functions ---
+
+function do_install() {
+    echo -e "\${BLUE}🚀 Starting Installation...\${NC}"
+    install_dependencies
+    setup_environment
+    configure_bot
+    setup_service
+    create_shortcut
+    echo -e "\n\${GREEN}🎉 Installation Complete! \${NC}"
+    pause
+}
+
+function do_update() {
+    echo -e "\${BLUE}🔄 Updating Bot...\${NC}"
+    cd "\$INSTALL_DIR"
+    
+    echo "1. Pulling from Git..."
+    git pull
+    
+    echo "2. Restarting Service..."
+    sudo systemctl restart \$SERVICE_NAME
+    
+    echo -e "\${GREEN}✅ Update Complete.\${NC}"
+    pause
+}
+
+function do_logs() {
+    echo -e "\${YELLOW}📜 Showing last 50 lines of logs (Press Ctrl+C to exit logs)...\${NC}"
+    journalctl -u \$SERVICE_NAME -n 50 -f
+}
+
+function do_status() {
+    sudo systemctl status \$SERVICE_NAME
+    pause
+}
+
+function do_restart() {
+    sudo systemctl restart \$SERVICE_NAME
+    echo "Bot restarted."
+    pause
+}
+
+function do_stop() {
+    sudo systemctl stop \$SERVICE_NAME
+    echo "Bot stopped."
+    pause
+}
+
+# --- Main Menu Loop ---
+
+while true; do
+    clear
+    echo -e "\${BLUE}========================================\${NC}"
+    echo -e "\${GREEN}      🚗 Iran Car Bot Manager 🚗      \${NC}"
+    echo -e "\${BLUE}========================================\${NC}"
+    echo -e "1) \${GREEN}Install / Reinstall\${NC} (Full Setup)"
+    echo -e "2) \${YELLOW}Update Bot\${NC} (Git Pull & Restart)"
+    echo -e "3) View Logs"
+    echo -e "4) Check Status"
+    echo -e "5) Restart Bot"
+    echo -e "6) Stop Bot"
+    echo -e "7) Exit"
+    echo -e "\${BLUE}========================================\${NC}"
+    read -p "Select an option [1-7]: " choice
+
+    case \$choice in
+        1) do_install ;;
+        2) do_update ;;
+        3) do_logs ;;
+        4) do_status ;;
+        5) do_restart ;;
+        6) do_stop ;;
+        7) exit 0 ;;
+        *) echo -e "\${RED}Invalid option.\${NC}"; pause ;;
+    esac
+done
 `;
 };
 
