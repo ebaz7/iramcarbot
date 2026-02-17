@@ -472,7 +472,11 @@ def load_data():
                 data = json.load(f)
                 return data
         except: pass
-    return {"backup_interval": 0} # Default
+    return {"backup_interval": 0}
+
+def save_data(data):
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
     if os.path.exists(DATA_FILE) and OWNER_ID != 0:
@@ -524,6 +528,59 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reset_state(user_id)
         await query.edit_message_text(text="منوی اصلی:", reply_markup=get_main_menu(user_id))
         return
+    
+    # --- ADMIN HOME ---
+    if data == "admin_home" and str(user_id) == str(OWNER_ID):
+        keyboard = [
+            [InlineKeyboardButton("💾 مدیریت بکاپ و دیتابیس", callback_data="admin_backup_menu")],
+            [InlineKeyboardButton("🔙 خروج", callback_data="main_menu")]
+        ]
+        await query.edit_message_text("🛠 پنل مدیریت:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    # --- BACKUP MENU ---
+    if data == "admin_backup_menu" and str(user_id) == str(OWNER_ID):
+        d = load_data()
+        interval = d.get("backup_interval", 0)
+        status = "❌ خاموش" if interval == 0 else (f"✅ هر {interval} ساعت")
+        
+        keyboard = [
+            [InlineKeyboardButton("📥 دریافت بکاپ (همین الان)", callback_data="backup_get_now")],
+            [InlineKeyboardButton("⏱ تنظیم ساعتی (1h)", callback_data="backup_set_1h"), InlineKeyboardButton("📅 تنظیم روزانه (24h)", callback_data="backup_set_24h")],
+            [InlineKeyboardButton("🚫 خاموش کردن بکاپ", callback_data="backup_off")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
+        ]
+        await query.edit_message_text(f"💾 **مدیریت بکاپ**\\n\\nوضعیت فعلی: {status}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
+    if data == "backup_get_now":
+        if os.path.exists(DATA_FILE):
+             await context.bot.send_document(chat_id=user_id, document=open(DATA_FILE, 'rb'), caption="💾 Manual Backup")
+        else:
+             await query.message.reply_text("❌ فایلی وجود ندارد.")
+        return
+
+    if data.startswith("backup_set_") or data == "backup_off":
+        new_interval = 0
+        if data == "backup_set_1h": new_interval = 1
+        elif data == "backup_set_24h": new_interval = 24
+        
+        d = load_data()
+        d['backup_interval'] = new_interval
+        save_data(d)
+        
+        # Reschedule Jobs
+        current_jobs = context.job_queue.get_jobs_by_name('auto_backup')
+        for job in current_jobs: job.schedule_removal()
+        
+        if new_interval > 0:
+            context.job_queue.run_repeating(send_auto_backup, interval=new_interval*3600, first=10, name='auto_backup')
+            await query.edit_message_text(f"✅ بکاپ خودکار روی هر {new_interval} ساعت تنظیم شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="admin_backup_menu")]]))
+        else:
+            await query.edit_message_text("🚫 بکاپ خودکار غیرفعال شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="admin_backup_menu")]]))
+        return
+
+    # --- STANDARD FLOW ---
 
     if data == "menu_prices":
         keyboard = []
@@ -673,7 +730,7 @@ async def post_init(application):
     try:
         await application.bot.delete_my_commands()
         await application.bot.set_my_commands([
-            BotCommand("start", "🏠 منوی اصلی / شروع مجدد"),
+            BotCommand("start", "🏠 منوی اصلی"),
             BotCommand("id", "🆔 دریافت شناسه عددی"),
             BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)")
         ])

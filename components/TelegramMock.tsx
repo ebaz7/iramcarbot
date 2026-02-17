@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BotState, ChatMessage, InlineButton, EstimateData } from '../types';
 import { CAR_DB, YEARS, PAINT_CONDITIONS } from '../constants';
-import { Send, Menu, ArrowLeft, RefreshCw, ShieldAlert, Users, Megaphone, Star, Upload, FileSpreadsheet, Download, Clock, Filter, Phone, UserPlus, Globe } from 'lucide-react';
+import { Send, Menu, ArrowLeft, RefreshCw, ShieldAlert, Users, Megaphone, Star, Upload, FileSpreadsheet, Download, Clock, Filter, Phone, UserPlus, Globe, Database, Save } from 'lucide-react';
 
 const TelegramMock: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -16,6 +16,7 @@ const TelegramMock: React.FC = () => {
   const [channelUrl, setChannelUrl] = useState("https://t.me/CarPrice_Channel");
   const [sponsorConfig, setSponsorConfig] = useState<{name?: string, url?: string}>({});
   const [lastUpdate, setLastUpdate] = useState<string>(new Date().toLocaleString('fa-IR'));
+  const [backupInterval, setBackupInterval] = useState<number>(0);
   
   const [tempAdminData, setTempAdminData] = useState<any>({});
 
@@ -148,6 +149,7 @@ const TelegramMock: React.FC = () => {
     // --- ADMIN HOME (The Button Handler) ---
     if (callbackData === 'admin_home') {
         addBotMessage("🛠 **پنل مدیریت پیشرفته**\n\nگزینه مورد نظر را انتخاب کنید:", [
+            [{ text: "💾 مدیریت بکاپ و دیتابیس", callbackData: "admin_backup_menu" }],
             [{ text: "👥 مدیریت ادمین‌ها", callbackData: "admin_manage_admins" }],
             [{ text: "📂 آپدیت قیمت (اکسل)", callbackData: "admin_update_excel" }],
             [{ text: "➕ افزودن تکی خودرو", callbackData: "admin_add_car" }],
@@ -155,6 +157,53 @@ const TelegramMock: React.FC = () => {
             [{ text: "📣 ارسال پیام همگانی", callbackData: "admin_broadcast" }],
             [{ text: "🔙 خروج از مدیریت", callbackData: "main_menu" }]
         ]);
+        return;
+    }
+
+    // --- BACKUP MANAGEMENT ---
+    if (callbackData === 'admin_backup_menu') {
+        const status = backupInterval === 0 ? "❌ غیرفعال" : (backupInterval === 1 ? "✅ هر ساعت" : "✅ هر 24 ساعت");
+        
+        addBotMessage(`💾 **مدیریت بکاپ و دیتابیس**\n\nوضعیت بکاپ خودکار: ${status}\n\nیک گزینه انتخاب کنید:`, [
+            [{ text: "📥 دریافت بکاپ آنی (همین الان)", callbackData: "backup_get_now" }],
+            [{ text: "⏱ تنظیم بکاپ ساعتی (1h)", callbackData: "backup_set_1h" }],
+            [{ text: "📅 تنظیم بکاپ روزانه (24h)", callbackData: "backup_set_24h" }],
+            [{ text: "🚫 خاموش کردن بکاپ خودکار", callbackData: "backup_off" }],
+            [{ text: "🔙 بازگشت", callbackData: "admin_home" }]
+        ]);
+        return;
+    }
+    
+    if (callbackData === 'backup_get_now') {
+        addBotMessage("⏳ در حال ایجاد فایل بکاپ...");
+        setTimeout(() => {
+             setMessages(prev => [...prev, {
+                id: Date.now().toString(),
+                text: "💾 bot_data.json\n(فایل دیتابیس کامل)",
+                sender: 'bot',
+                timestamp: new Date(),
+                buttons: []
+            }]);
+            setTimeout(() => {
+                addBotMessage("✅ فایل بکاپ ارسال شد.", [[{ text: "🔙 منوی بکاپ", callbackData: "admin_backup_menu" }]]);
+            }, 500);
+        }, 1000);
+        return;
+    }
+
+    if (callbackData === 'backup_set_1h') {
+        setBackupInterval(1);
+        addBotMessage("✅ بکاپ خودکار روی **هر ۱ ساعت** تنظیم شد.", [[{ text: "🔙 منوی بکاپ", callbackData: "admin_backup_menu" }]]);
+        return;
+    }
+    if (callbackData === 'backup_set_24h') {
+        setBackupInterval(24);
+        addBotMessage("✅ بکاپ خودکار روی **هر ۲۴ ساعت** تنظیم شد.", [[{ text: "🔙 منوی بکاپ", callbackData: "admin_backup_menu" }]]);
+        return;
+    }
+    if (callbackData === 'backup_off') {
+        setBackupInterval(0);
+        addBotMessage("🚫 بکاپ خودکار **غیرفعال** شد.", [[{ text: "🔙 منوی بکاپ", callbackData: "admin_backup_menu" }]]);
         return;
     }
 
@@ -589,14 +638,14 @@ const TelegramMock: React.FC = () => {
                 <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
                     <div className={`max-w-[85%] rounded-lg p-3 text-sm shadow-sm ${msg.sender === 'user' ? 'bg-[#dcf8c6] text-gray-800 rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none'}`}>
                         {/* File Simulation */}
-                        {msg.text.includes("prices_1403.xlsx") ? (
+                        {msg.text.includes("prices_1403.xlsx") || msg.text.includes("bot_data.json") ? (
                             <div className="flex items-center gap-3">
                                 <div className="bg-green-500 p-3 rounded-lg text-white">
-                                    <FileSpreadsheet size={24} />
+                                    {msg.text.includes("json") ? <Database size={24} /> : <FileSpreadsheet size={24} />}
                                 </div>
                                 <div>
-                                    <div className="font-bold text-blue-600">prices_1403.xlsx</div>
-                                    <div className="text-xs text-gray-500">14.5 KB Excel Spreadsheet</div>
+                                    <div className="font-bold text-blue-600">{msg.text.split('\n')[0].replace("💾 ", "").replace("📂 ", "")}</div>
+                                    <div className="text-xs text-gray-500">{msg.text.includes("json") ? "Database File" : "Excel Spreadsheet"}</div>
                                 </div>
                             </div>
                         ) : (
