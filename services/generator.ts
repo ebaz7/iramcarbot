@@ -64,9 +64,6 @@ sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
 # Replaces 'OWNER_ID = 0' with 'OWNER_ID = 123456789'
 sed -i "s/OWNER_ID = 0/OWNER_ID = \$ADMIN_ID/g" bot.py
 
-# 3. Replace the comment placeholder just in case
-sed -i "s/REPLACE_ME_ADMIN_ID/\$ADMIN_ID/g" bot.py
-
 echo -e "\${GREEN}✅ Admin ID set to \$ADMIN_ID. You now have full ownership permissions.\${NC}"
 
 # 7. Setup Systemd Service (Auto-Restart)
@@ -124,7 +121,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Callb
 
 # Configuration
 TOKEN = 'REPLACE_ME_TOKEN'
-OWNER_ID = 0  # REPLACE_ME_ADMIN_ID (Main Owner)
+OWNER_ID = 0  # REPLACE_ME_ADMIN_ID
 DATA_FILE = 'bot_data.json'
 EXCEL_FILE = 'prices.xlsx'
 CHANNEL_URL = 'https://t.me/CarPrice_Channel' 
@@ -164,13 +161,10 @@ def load_data():
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # If cars dict is empty/missing, inject default data
                 if not data.get('cars'):
                     data['cars'] = DEFAULT_CARS
                 return data
         except: pass
-    
-    # Return structure with defaults if file missing
     return {
         "cars": DEFAULT_CARS, 
         "sponsor": {}, 
@@ -190,7 +184,6 @@ def get_last_update():
     return load_data().get("last_update", "نامشخص")
 
 def is_admin(user_id):
-    # Check OWNER_ID (Handle string/int mismatch)
     if str(user_id) == str(OWNER_ID):
         return True
     data = load_data()
@@ -278,7 +271,6 @@ async def adm_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return MANAGE_ADMINS
         
     elif choice == 'adm_excel':
-        # (Excel Logic)
         data = load_data()
         rows = []
         cars = data.get("cars", {})
@@ -367,7 +359,7 @@ async def add_new_admin_exec(update: Update, context: ContextTypes.DEFAULT_TYPE)
                                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='admin_home')]]))
     return ADMIN_MENU
 
-# --- Broadcast Logic (Existing) ---
+# --- Broadcast Logic ---
 async def adm_broadcast_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -445,7 +437,6 @@ async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_T
     user_msg = update.message.text
     user = update.effective_user
     
-    # Forward to Admins
     admins = get_all_admins()
     admin_text = f"📩 **پیام جدید پشتیبانی**\\n👤 کاربر: {user.first_name} (ID: {user.id})\\n\\n📝 متن:\\n{user_msg}"
     
@@ -458,8 +449,7 @@ async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_T
                                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("خانه", callback_data='main_menu')]]))
     return ConversationHandler.END
 
-# --- Standard Handlers (Excel, Manual Add, etc. kept same as before but abbreviated for brevity here where logic didn't change drastically) ---
-# ... (Assuming previous helper functions for excel/add car remain) ...
+# --- Standard Handlers ---
 async def adm_handle_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.document: return UPLOAD_EXCEL
     file = await update.message.document.get_file()
@@ -503,7 +493,7 @@ async def add_car_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ ثبت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازشت", callback_data='main_menu')]]))
     return ConversationHandler.END
 
-# --- Estimator Handlers (Standard) ---
+# --- Estimator Handlers ---
 async def start_estimate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -550,7 +540,6 @@ async def est_calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    # Calculation Logic
     data = context.user_data
     brand = data.get('est_brand')
     model = data.get('est_model')
@@ -559,7 +548,6 @@ async def est_calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     paint_idx = int(query.data.replace('est_paint_', ''))
     paint = PAINT_CONDITIONS[paint_idx]
     
-    # Get base price
     cars_db = get_db()
     base_price = 0
     try:
@@ -568,12 +556,10 @@ async def est_calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if m['name'] == model:
                 base_price = m['variants'][0]['marketPrice']
                 break
-    except: base_price = 800 # Fallback
+    except: base_price = 800
     
-    # Logic
     current_year = 1404
     age = current_year - year
-    
     age_drop = 0.05 if age == 1 else (0.05 + ((age-1)*0.035)) if age > 1 else 0
     if age_drop > 0.40: age_drop = 0.40
     
@@ -587,7 +573,7 @@ async def est_calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     total_drop = age_drop + mileage_drop + paint_drop
     final_price = base_price * (1 - total_drop)
-    final_price = round(final_price / 5) * 5 # Round to nearest 5
+    final_price = round(final_price / 5) * 5
     
     msg = f"🎯 **نتیجه تخمین قیمت**\\n\\n"
     msg += f"🚙 **{brand} {model}**\\n"
@@ -624,7 +610,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     
-    # Show Admin Panel Button if Owner or Admin (MAGIC PART)
+    # MAGIC: Automatically add Admin Button if user is Admin
     if is_admin(user.id):
         keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data='admin_home')])
 
@@ -640,7 +626,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 شناسه شما: {update.effective_user.id}")
 
-# --- Browsing Handlers (Standard) ---
+# --- Browsing Handlers ---
 async def show_brands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -707,7 +693,6 @@ async def show_final_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     builder = ApplicationBuilder().token(TOKEN)
     
-    # Check for Proxy Env Var (Configured via install.sh)
     proxy_url = os.environ.get("PROXY_URL")
     if proxy_url and proxy_url.strip():
         print(f"Using Proxy: {proxy_url}")
@@ -716,7 +701,6 @@ def main():
     
     application = builder.build()
     
-    # Admin Conversation
     admin_conv = ConversationHandler(
         entry_points=[CommandHandler('admin', admin_start), CallbackQueryHandler(admin_start, pattern='^admin_home$')],
         states={
@@ -736,7 +720,6 @@ def main():
         fallbacks=[CommandHandler('start', start), CallbackQueryHandler(start, pattern='^main_menu$')]
     )
     
-    # Support Conversation
     support_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_support, pattern='^menu_support$')],
         states={
@@ -745,7 +728,6 @@ def main():
         fallbacks=[CommandHandler('start', start), CallbackQueryHandler(start, pattern='^main_menu$')]
     )
 
-    # Estimator (Simplified entry for brevity)
     est_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_estimate, pattern='^menu_estimate$')],
         states={
