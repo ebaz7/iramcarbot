@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
@@ -10,10 +11,7 @@ OWNER_ID = 0
 DATA_FILE = 'bot_data.json'
 
 # Load Database
-CAR_DB = {} # Populated by generator or file load
-# Note: In the real deployment via generator, CAR_DB is injected. 
-# For this static file view, assume it's empty or populated. 
-# We'll use the one from generator logic for consistency.
+CAR_DB = {} # Populated by generator
 YEARS = [1404, 1403, 1402, 1401, 1400, 1399, 1398, 1397, 1396, 1395, 1394, 1393, 1392, 1391, 1390]
 PAINT_CONDITIONS = [
   {"label": "بدون رنگ (سالم)", "drop": 0},
@@ -31,37 +29,42 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 user_states = {}
+# User States
 STATE_IDLE = "IDLE"
 STATE_ESTIMATE_BRAND = "EST_BRAND"
 STATE_ESTIMATE_MODEL = "EST_MODEL"
 STATE_ESTIMATE_YEAR = "EST_YEAR"
 STATE_ESTIMATE_MILEAGE = "EST_MILEAGE"
 STATE_ESTIMATE_PAINT = "EST_PAINT"
+# Admin States
+STATE_ADMIN_ADD_ADMIN = "ADM_ADD_ADMIN"
+STATE_ADMIN_SPONSOR_NAME = "ADM_SPONSOR_NAME"
+STATE_ADMIN_SPONSOR_LINK = "ADM_SPONSOR_LINK"
+STATE_ADMIN_BROADCAST = "ADM_BCAST"
 
-# --- Backup Logic ---
+# --- Data Management ---
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data
+                return json.load(f)
         except: pass
-    return {"backup_interval": 0}
+    return {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}}
 
 def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
-    if os.path.exists(DATA_FILE) and OWNER_ID != 0:
-        try:
-            await context.bot.send_document(
-                chat_id=OWNER_ID,
-                document=open(DATA_FILE, 'rb'),
-                caption="💾 Auto-Backup"
-            )
-        except Exception as e:
-            logger.error(f"Backup failed: {e}")
+def register_user(user_id):
+    d = load_data()
+    if user_id not in d.get("users", []):
+        if "users" not in d: d["users"] = []
+        d["users"].append(user_id)
+        save_data(d)
+
+def is_admin(user_id):
+    d = load_data()
+    return str(user_id) == str(OWNER_ID) or user_id in d.get("admins", [])
 
 # --- Helper Functions ---
 def get_state(user_id):
@@ -82,36 +85,37 @@ def get_main_menu(user_id):
         [InlineKeyboardButton("📋 لیست قیمت (ربات)", callback_data="menu_prices"), InlineKeyboardButton("💰 تخمین قیمت (ربات)", callback_data="menu_estimate")],
         [InlineKeyboardButton("🔍 جستجو", callback_data="menu_search"), InlineKeyboardButton("📞 پشتیبانی", callback_data="menu_support")]
     ]
-    if str(user_id) == str(OWNER_ID): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
-    keyboard.append([InlineKeyboardButton("📢 کانال ما", url="https://t.me/CarPrice_Channel")])
+    if is_admin(user_id): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
+    
+    # Sponsor Button
+    d = load_data()
+    sponsor = d.get("sponsor", {})
+    footer = [InlineKeyboardButton("📢 کانال ما", url="https://t.me/CarPrice_Channel")]
+    if sponsor.get("name") and sponsor.get("url"):
+        footer.append(InlineKeyboardButton(f"⭐ {sponsor['name']}", url=sponsor['url']))
+    keyboard.append(footer)
+    
     return InlineKeyboardMarkup(keyboard)
 
 # --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    register_user(user_id)
     reset_state(user_id)
-    await update.message.reply_text(f"👋 سلام! منوی اصلی:", reply_markup=get_main_menu(user_id))
+    await update.message.reply_text(f"👋 سلام! به ربات قیمت خودرو خوش آمدید.\\n📅 امروز: {datetime.date.today()}", reply_markup=get_main_menu(user_id))
 
 async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Force updates the menu commands manually"""
     user_id = update.effective_user.id
     try:
-        # 1. Update Global Commands
         await context.bot.delete_my_commands()
         await context.bot.set_my_commands([
             BotCommand("start", "🏠 منوی اصلی"),
-            BotCommand("id", "🆔 دریافت شناسه عددی"),
-            BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)"),
+            BotCommand("id", "🆔 دریافت شناسه"),
+            BotCommand("admin", "👑 پنل مدیریت"),
             BotCommand("fixmenu", "🔧 تعمیر دکمه منو")
         ])
-        
-        # 2. Set Default Menu Button (Global)
-        await context.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
-        
-        # 3. FORCE Set Menu Button for THIS User specifically
         await context.bot.set_chat_menu_button(chat_id=user_id, menu_button=MenuButtonCommands())
-        
-        await update.message.reply_text("✅ دکمه منوی آبی (دستورات) برای شما به زور فعال شد!\\n\\nاگر هنوز نمی‌بینید، تلگرام را کامل ببندید و باز کنید.")
+        await update.message.reply_text("✅ منو تعمیر شد.")
     except Exception as e:
         await update.message.reply_text(f"❌ خطا: {e}")
 
@@ -127,58 +131,78 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # --- ADMIN HOME ---
-    if data == "admin_home" and str(user_id) == str(OWNER_ID):
+    if data == "admin_home" and is_admin(user_id):
         keyboard = [
-            [InlineKeyboardButton("💾 مدیریت بکاپ و دیتابیس", callback_data="admin_backup_menu")],
+            [InlineKeyboardButton("💾 بکاپ و دیتابیس", callback_data="admin_backup_menu")],
+            [InlineKeyboardButton("👥 مدیریت ادمین‌ها", callback_data="admin_manage_admins")],
+            [InlineKeyboardButton("📂 آپدیت اکسل (Placeholder)", callback_data="admin_update_excel")],
+            [InlineKeyboardButton("⭐ تنظیم اسپانسر", callback_data="admin_set_sponsor")],
+            [InlineKeyboardButton("📣 ارسال پیام همگانی", callback_data="admin_broadcast")],
             [InlineKeyboardButton("🔙 خروج", callback_data="main_menu")]
         ]
-        await query.edit_message_text("🛠 پنل مدیریت:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("🛠 **پنل مدیریت پیشرفته**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
+    # --- ADMIN: SPONSOR ---
+    if data == "admin_set_sponsor":
+        set_state(user_id, STATE_ADMIN_SPONSOR_NAME)
+        await query.message.reply_text("✍️ نام اسپانسر را وارد کنید:")
+        return
+
+    # --- ADMIN: BROADCAST ---
+    if data == "admin_broadcast":
+        set_state(user_id, STATE_ADMIN_BROADCAST)
+        await query.message.reply_text("✍️ متن پیام همگانی را بفرستید (برای همه کاربران ارسال می‌شود):")
+        return
+
+    # --- ADMIN: MANAGE ADMINS ---
+    if data == "admin_manage_admins":
+        d = load_data()
+        admins = d.get("admins", [])
+        text = f"👥 لیست ادمین‌ها:\\nOwner: {OWNER_ID}\\n" + "\\n".join([str(a) for a in admins])
+        keyboard = [
+            [InlineKeyboardButton("➕ افزودن ادمین جدید", callback_data="admin_add_new_admin")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data == "admin_add_new_admin":
+        set_state(user_id, STATE_ADMIN_ADD_ADMIN)
+        await query.message.reply_text("🔢 شناسه عددی (ID) کاربر را وارد کنید:")
         return
 
     # --- BACKUP MENU ---
-    if data == "admin_backup_menu" and str(user_id) == str(OWNER_ID):
+    if data == "admin_backup_menu" and is_admin(user_id):
         d = load_data()
         interval = d.get("backup_interval", 0)
         status = "❌ خاموش" if interval == 0 else (f"✅ هر {interval} ساعت")
-        
         keyboard = [
             [InlineKeyboardButton("📥 دریافت بکاپ (همین الان)", callback_data="backup_get_now")],
             [InlineKeyboardButton("⏱ تنظیم ساعتی (1h)", callback_data="backup_set_1h"), InlineKeyboardButton("📅 تنظیم روزانه (24h)", callback_data="backup_set_24h")],
             [InlineKeyboardButton("🚫 خاموش کردن بکاپ", callback_data="backup_off")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
         ]
-        await query.edit_message_text(f"💾 **مدیریت بکاپ**\\n\\nوضعیت فعلی: {status}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await query.edit_message_text(f"💾 مدیریت بکاپ\\nوضعیت: {status}", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data == "backup_get_now":
         if os.path.exists(DATA_FILE):
              await context.bot.send_document(chat_id=user_id, document=open(DATA_FILE, 'rb'), caption="💾 Manual Backup")
-        else:
-             await query.message.reply_text("❌ فایلی وجود ندارد.")
+        else: await query.message.reply_text("❌ فایلی وجود ندارد.")
         return
 
     if data.startswith("backup_set_") or data == "backup_off":
         new_interval = 0
         if data == "backup_set_1h": new_interval = 1
         elif data == "backup_set_24h": new_interval = 24
-        
         d = load_data()
         d['backup_interval'] = new_interval
         save_data(d)
-        
-        # Reschedule Jobs
-        current_jobs = context.job_queue.get_jobs_by_name('auto_backup')
-        for job in current_jobs: job.schedule_removal()
-        
-        if new_interval > 0:
-            context.job_queue.run_repeating(send_auto_backup, interval=new_interval*3600, first=10, name='auto_backup')
-            await query.edit_message_text(f"✅ بکاپ خودکار روی هر {new_interval} ساعت تنظیم شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="admin_backup_menu")]]))
-        else:
-            await query.edit_message_text("🚫 بکاپ خودکار غیرفعال شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="admin_backup_menu")]]))
+        await query.edit_message_text(f"✅ تنظیم شد: {new_interval} ساعت", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="admin_backup_menu")]]))
         return
 
-    # --- STANDARD FLOW ---
-
+    # --- CAR ESTIMATION FLOW ---
     if data == "menu_prices":
         keyboard = []
         for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
@@ -301,6 +325,48 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🆔 {user_id}")
         return
 
+    # --- ADMIN INPUTS ---
+    if state_info["state"] == STATE_ADMIN_ADD_ADMIN:
+        try:
+            new_admin_id = int(text)
+            d = load_data()
+            if "admins" not in d: d["admins"] = []
+            if new_admin_id not in d["admins"]: d["admins"].append(new_admin_id)
+            save_data(d)
+            await update.message.reply_text(f"✅ ادمین {new_admin_id} اضافه شد.")
+        except: await update.message.reply_text("❌ خطا: فقط عدد وارد کنید.")
+        reset_state(user_id)
+        return
+
+    if state_info["state"] == STATE_ADMIN_SPONSOR_NAME:
+        update_data(user_id, "sponsor_name", text)
+        set_state(user_id, STATE_ADMIN_SPONSOR_LINK)
+        await update.message.reply_text("🔗 حالا لینک اسپانسر را وارد کنید:")
+        return
+
+    if state_info["state"] == STATE_ADMIN_SPONSOR_LINK:
+        name = state_info["data"].get("sponsor_name")
+        d = load_data()
+        d["sponsor"] = {"name": name, "url": text}
+        save_data(d)
+        await update.message.reply_text("✅ اسپانسر تنظیم شد.")
+        reset_state(user_id)
+        return
+
+    if state_info["state"] == STATE_ADMIN_BROADCAST:
+        d = load_data()
+        users = d.get("users", [])
+        count = 0
+        for uid in users:
+            try:
+                await context.bot.send_message(chat_id=uid, text=text)
+                count += 1
+            except: pass
+        await update.message.reply_text(f"✅ پیام به {count} نفر ارسال شد.")
+        reset_state(user_id)
+        return
+
+    # --- ESTIMATION INPUTS ---
     if state_info["state"] == STATE_ESTIMATE_MILEAGE:
         try:
             mileage = int(text.replace(",", ""))
@@ -315,28 +381,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: await update.message.reply_text("⚠️ فقط عدد وارد کنید.")
         return
 
-# --- Startup Logic ---
 async def post_init(application):
-    # Auto-Backup Setup
+    # Auto-Backup
     data = load_data()
     interval = data.get("backup_interval", 0)
     if interval > 0:
         application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=60, name='auto_backup')
-    
-    # Force Menu Refresh
+    # Fix Commands
     try:
-        await application.bot.delete_my_commands()
         await application.bot.set_my_commands([
             BotCommand("start", "🏠 منوی اصلی"),
-            BotCommand("id", "🆔 دریافت شناسه عددی"),
-            BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)"),
+            BotCommand("id", "🆔 دریافت شناسه"),
+            BotCommand("admin", "👑 پنل مدیریت"),
             BotCommand("fixmenu", "🔧 تعمیر دکمه منو")
         ])
-        # Explicitly set the menu button to commands
         await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
-        logger.info("Bot commands updated successfully.")
-    except Exception as e:
-        logger.error(f"Failed to set commands: {e}")
+    except: pass
 
 if __name__ == '__main__':
     if TOKEN == 'REPLACE_ME_TOKEN': print("⚠️ Configure token in bot.py")
