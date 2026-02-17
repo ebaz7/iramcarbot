@@ -40,6 +40,9 @@ function install_dependencies() {
 }
 
 function setup_environment() {
+    # CRITICAL FIX: Ensure we are in HOME before potentially deleting the current directory
+    cd "$HOME" || exit 1
+
     echo -e "${BLUE}📂 Setting up Directory: $INSTALL_DIR ${NC}"
     
     # Logic to fix "bot.py not found" error:
@@ -57,6 +60,13 @@ function setup_environment() {
     else
         echo -e "${GREEN}⬇️  Cloning repository from $REPO_URL...${NC}"
         git clone "$REPO_URL" "$INSTALL_DIR"
+        
+        if [ ! -d "$INSTALL_DIR" ]; then
+             echo -e "${RED}❌ Error: Git clone failed. Directory not created.${NC}"
+             pause
+             return 1
+        fi
+        
         cd "$INSTALL_DIR"
     fi
 
