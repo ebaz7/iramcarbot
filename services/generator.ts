@@ -209,6 +209,30 @@ function do_update() {
     pause
 }
 
+function do_uninstall() {
+    echo -e "\${RED}🗑️  WARNING: This will completely remove the bot and all data! \${NC}"
+    read -p "Are you sure? (y/n): " confirm
+    if [[ "\$confirm" != "y" ]]; then
+        echo "Cancelled."
+        pause
+        return
+    fi
+    
+    echo -e "\${BLUE}🛑 Stopping service...\${NC}"
+    check_root
+    sudo systemctl stop \$SERVICE_NAME
+    sudo systemctl disable \$SERVICE_NAME
+    sudo rm /etc/systemd/system/\$SERVICE_NAME.service
+    sudo systemctl daemon-reload
+    
+    echo -e "\${BLUE}📂 Removing files...\${NC}"
+    rm -rf "\$INSTALL_DIR"
+    sudo rm /usr/local/bin/carbot
+    
+    echo -e "\${GREEN}✅ Uninstall Complete. Clean slate! \${NC}"
+    pause
+}
+
 function do_logs() {
     echo -e "\${YELLOW}📜 Showing last 50 lines of logs (Press Ctrl+C to exit logs)...\${NC}"
     journalctl -u \$SERVICE_NAME -n 50 -f
@@ -238,15 +262,16 @@ while true; do
     echo -e "\${BLUE}========================================\${NC}"
     echo -e "\${GREEN}      🚗 Iran Car Bot Manager 🚗      \${NC}"
     echo -e "\${BLUE}========================================\${NC}"
-    echo -e "1) \${GREEN}Install / Reinstall\${NC} (Fixes 'bot.py not found')"
+    echo -e "1) \${GREEN}Install / Reinstall\${NC} (Fixes errors)"
     echo -e "2) \${YELLOW}Update Bot\${NC} (Git Pull & Restart)"
     echo -e "3) View Logs"
     echo -e "4) Check Status"
     echo -e "5) Restart Bot"
     echo -e "6) Stop Bot"
-    echo -e "7) Exit"
+    echo -e "7) \${RED}Uninstall Completely\${NC}"
+    echo -e "8) Exit"
     echo -e "\${BLUE}========================================\${NC}"
-    read -p "Select an option [1-7]: " choice
+    read -p "Select an option [1-8]: " choice
 
     case \$choice in
         1) do_install ;;
@@ -255,7 +280,8 @@ while true; do
         4) do_status ;;
         5) do_restart ;;
         6) do_stop ;;
-        7) exit 0 ;;
+        7) do_uninstall ;;
+        8) exit 0 ;;
         *) echo -e "\${RED}Invalid option.\${NC}"; pause ;;
     esac
 done
@@ -264,7 +290,6 @@ done
 
 // --- Python Code Generator ---
 export const generatePythonCode = (): string => {
-  // Convert CAR_DB to Python dictionary format string
   const pythonCarDb = JSON.stringify(CAR_DB, null, 4)
       .replace(/true/g, 'True')
       .replace(/false/g, 'False')
@@ -298,7 +323,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
  BROADCAST_MENU, BROADCAST_GET_TIME, BROADCAST_GET_CONTENT, 
  MANAGE_ADMINS, ADD_NEW_ADMIN, 
  SUPPORT_GET_MSG,
- SEND_USER_ID, SEND_USER_MSG) = range(25)
+ BACKUP_MENU, SET_BACKUP_INTERVAL, RESTORE_BACKUP) = range(26)
 
 # --- DEPRECIATION CONSTANTS ---
 PAINT_CONDITIONS = [
@@ -331,7 +356,8 @@ def load_data():
         "sponsor": {}, 
         "users": {}, 
         "last_update": "پیش‌فرض", 
-        "admins": []
+        "admins": [],
+        "backup_interval": 0 # hours, 0 means off
     }
 
 def save_data(data):
@@ -375,9 +401,6 @@ def log_user(user_id):
     data['users'][uid_str] = str(datetime.now())
     save_data(data)
 
-def get_jalali_date():
-    return jdatetime.date.today().strftime("%Y/%m/%d")
-
 # --- Helper: Footer ---
 def attach_footer(keyboard):
     data = load_data()
@@ -387,6 +410,18 @@ def attach_footer(keyboard):
         footer_row.append(InlineKeyboardButton(f"⭐ {sponsor['name']}", url=sponsor['url']))
     keyboard.append(footer_row)
     return keyboard
+
+# --- Auto Backup Logic ---
+async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
+    if os.path.exists(DATA_FILE):
+        try:
+            await context.bot.send_document(
+                chat_id=OWNER_ID,
+                document=open(DATA_FILE, 'rb'),
+                caption="💾 **بکاپ خودکار دیتابیس**"
+            )
+        except Exception as e:
+            logging.error(f"Backup failed: {e}")
 
 # --- Admin Handlers ---
 async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -406,6 +441,7 @@ async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("➕ افزودن تکی خودرو", callback_data='adm_add_single')],
         [InlineKeyboardButton("⭐ تنظیم اسپانسر", callback_data='adm_sponsor')],
         [InlineKeyboardButton("📣 ارسال همگانی پیشرفته", callback_data='adm_broadcast')],
+        [InlineKeyboardButton("💾 مدیریت بکاپ (Backup)", callback_data='adm_backup')],
         [InlineKeyboardButton("🔙 خروج", callback_data='main_menu')]
     ]
     
@@ -432,6 +468,7 @@ async def adm_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return MANAGE_ADMINS
         
     elif choice == 'adm_excel':
+        # (Existing Excel Logic)
         data = load_data()
         rows = []
         cars = data.get("cars", {})
@@ -455,6 +492,20 @@ async def adm_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return UPLOAD_EXCEL
 
+    elif choice == 'adm_backup':
+        data = load_data()
+        interval = data.get("backup_interval", 0)
+        status = f"✅ فعال (هر {interval} ساعت)" if interval > 0 else "❌ غیرفعال"
+        
+        keyboard = [
+            [InlineKeyboardButton("📥 دریافت بکاپ آنی", callback_data='get_backup_now')],
+            [InlineKeyboardButton("⏱ تنظیم بکاپ خودکار", callback_data='set_backup_auto')],
+            [InlineKeyboardButton("📤 بازگردانی بکاپ (Restore)", callback_data='restore_backup')],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data='admin_home')]
+        ]
+        await query.edit_message_text(f"💾 **مدیریت بکاپ و دیتابیس**\\n\\nوضعیت بکاپ خودکار: {status}", reply_markup=InlineKeyboardMarkup(keyboard))
+        return BACKUP_MENU
+
     elif choice == 'adm_add_single':
         await query.edit_message_text("نام کمپانی (برند) را وارد کنید:")
         return ADD_BRAND
@@ -477,7 +528,85 @@ async def adm_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_start(update, context)
         return ADMIN_MENU
 
-# --- Admin Management Logic ---
+# --- Backup Handler Logic ---
+async def backup_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    choice = query.data
+
+    if choice == 'get_backup_now':
+        if os.path.exists(DATA_FILE):
+             await query.message.reply_document(document=open(DATA_FILE, 'rb'), caption="💾 فایل دیتابیس (bot_data.json)")
+        else:
+             await query.edit_message_text("❌ فایلی وجود ندارد.")
+        return BACKUP_MENU
+    
+    elif choice == 'set_backup_auto':
+        await query.edit_message_text("⏱ لطفا فاصله زمانی بکاپ خودکار را **به ساعت** وارد کنید:\\n(برای غیرفعال کردن عدد 0 را بفرستید)\\n\\nمثال: 12 (یعنی هر ۱۲ ساعت)")
+        return SET_BACKUP_INTERVAL
+
+    elif choice == 'restore_backup':
+        await query.edit_message_text("📤 لطفا فایل **bot_data.json** خود را ارسال کنید تا جایگزین دیتابیس فعلی شود.\\n\\n⚠️ هشدار: تمام اطلاعات فعلی پاک خواهد شد.")
+        return RESTORE_BACKUP
+    
+    elif choice == 'admin_home':
+        await admin_start(update, context)
+        return ADMIN_MENU
+
+async def set_backup_interval_exec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if not text.isdigit():
+        await update.message.reply_text("❌ لطفا عدد وارد کنید.")
+        return SET_BACKUP_INTERVAL
+    
+    hours = int(text)
+    data = load_data()
+    data['backup_interval'] = hours
+    save_data(data)
+    
+    # Update Job Queue
+    current_jobs = context.job_queue.get_jobs_by_name('auto_backup')
+    for job in current_jobs: job.schedule_removal()
+    
+    if hours > 0:
+        context.job_queue.run_repeating(send_auto_backup, interval=hours*3600, first=10, name='auto_backup')
+        await update.message.reply_text(f"✅ بکاپ خودکار روی هر {hours} ساعت تنظیم شد.")
+    else:
+        await update.message.reply_text("✅ بکاپ خودکار غیرفعال شد.")
+        
+    return BACKUP_MENU
+
+async def restore_backup_exec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.document:
+        await update.message.reply_text("❌ لطفا فایل ارسال کنید.")
+        return RESTORE_BACKUP
+        
+    f_name = update.message.document.file_name
+    if not f_name.endswith('.json'):
+        await update.message.reply_text("❌ فرمت فایل باید .json باشد.")
+        return RESTORE_BACKUP
+        
+    new_file = await update.message.document.get_file()
+    await new_file.download_to_drive(DATA_FILE)
+    
+    # Reload data to ensure validity
+    try:
+        data = load_data()
+        await update.message.reply_text("✅ بکاپ با موفقیت بازگردانی شد! ربات با اطلاعات جدید کار می‌کند.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='admin_home')]]))
+        
+        # Reschedule backup if needed
+        interval = data.get("backup_interval", 0)
+        current_jobs = context.job_queue.get_jobs_by_name('auto_backup')
+        for job in current_jobs: job.schedule_removal()
+        if interval > 0:
+            context.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=10, name='auto_backup')
+            
+    except:
+        await update.message.reply_text("❌ فایل خراب است یا ساختار معتبری ندارد.")
+        
+    return ConversationHandler.END
+
+# --- Admin Management Logic (Existing) ---
 async def manage_admins_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -520,7 +649,7 @@ async def add_new_admin_exec(update: Update, context: ContextTypes.DEFAULT_TYPE)
                                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='admin_home')]]))
     return ADMIN_MENU
 
-# --- Broadcast Logic ---
+# --- Broadcast Logic (Existing) ---
 async def adm_broadcast_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -586,7 +715,7 @@ async def adm_broadcast_execute(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text(f"✅ ارسال شد به {count} نفر.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='main_menu')]]))
     return ConversationHandler.END
 
-# --- Support System ---
+# --- Support System (Existing) ---
 async def start_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -610,7 +739,7 @@ async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_T
                                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("خانه", callback_data='main_menu')]]))
     return ConversationHandler.END
 
-# --- Standard Handlers ---
+# --- Standard Handlers (Existing) ---
 async def adm_handle_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.document: return UPLOAD_EXCEL
     file = await update.message.document.get_file()
@@ -654,7 +783,7 @@ async def add_car_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ ثبت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازشت", callback_data='main_menu')]]))
     return ConversationHandler.END
 
-# --- Estimator Handlers ---
+# --- Estimator Handlers (Existing) ---
 async def start_estimate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -787,7 +916,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 شناسه شما: {update.effective_user.id}")
 
-# --- Browsing Handlers ---
+# --- Browsing Handlers (Existing) ---
 async def show_brands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -850,9 +979,17 @@ async def show_final_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f'model_{brand}_{model}')]]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+# --- Startup Logic (Job Queue) ---
+async def post_init(application):
+    # Check for auto-backup setting on startup
+    data = load_data()
+    interval = data.get("backup_interval", 0)
+    if interval > 0:
+        application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=10, name='auto_backup')
+
 # --- Main ---
 def main():
-    builder = ApplicationBuilder().token(TOKEN)
+    builder = ApplicationBuilder().token(TOKEN).post_init(post_init)
     
     proxy_url = os.environ.get("PROXY_URL")
     if proxy_url and proxy_url.strip():
@@ -877,6 +1014,11 @@ def main():
             BROADCAST_MENU: [CallbackQueryHandler(adm_broadcast_menu_choice)],
             BROADCAST_GET_TIME: [MessageHandler(filters.TEXT, adm_broadcast_get_time)],
             BROADCAST_GET_CONTENT: [MessageHandler(filters.TEXT, adm_broadcast_execute)],
+            
+            # Backup States
+            BACKUP_MENU: [CallbackQueryHandler(backup_menu_choice)],
+            SET_BACKUP_INTERVAL: [MessageHandler(filters.TEXT, set_backup_interval_exec)],
+            RESTORE_BACKUP: [MessageHandler(filters.Document.FileExtension("json"), restore_backup_exec)],
         },
         fallbacks=[CommandHandler('start', start), CallbackQueryHandler(start, pattern='^main_menu$')]
     )

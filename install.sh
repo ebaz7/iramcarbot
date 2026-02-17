@@ -208,6 +208,30 @@ function do_update() {
     pause
 }
 
+function do_uninstall() {
+    echo -e "${RED}🗑️  WARNING: This will completely remove the bot and all data! ${NC}"
+    read -p "Are you sure? (y/n): " confirm
+    if [[ "$confirm" != "y" ]]; then
+        echo "Cancelled."
+        pause
+        return
+    fi
+    
+    echo -e "${BLUE}🛑 Stopping service...${NC}"
+    check_root
+    sudo systemctl stop $SERVICE_NAME
+    sudo systemctl disable $SERVICE_NAME
+    sudo rm /etc/systemd/system/$SERVICE_NAME.service
+    sudo systemctl daemon-reload
+    
+    echo -e "${BLUE}📂 Removing files...${NC}"
+    rm -rf "$INSTALL_DIR"
+    sudo rm /usr/local/bin/carbot
+    
+    echo -e "${GREEN}✅ Uninstall Complete. Clean slate! ${NC}"
+    pause
+}
+
 function do_logs() {
     echo -e "${YELLOW}📜 Showing last 50 lines of logs (Press Ctrl+C to exit logs)...${NC}"
     journalctl -u $SERVICE_NAME -n 50 -f
@@ -237,15 +261,16 @@ while true; do
     echo -e "${BLUE}========================================${NC}"
     echo -e "${GREEN}      🚗 Iran Car Bot Manager 🚗      ${NC}"
     echo -e "${BLUE}========================================${NC}"
-    echo -e "1) ${GREEN}Install / Reinstall${NC} (Fixes 'bot.py not found')"
+    echo -e "1) ${GREEN}Install / Reinstall${NC} (Fixes errors)"
     echo -e "2) ${YELLOW}Update Bot${NC} (Git Pull & Restart)"
     echo -e "3) View Logs"
     echo -e "4) Check Status"
     echo -e "5) Restart Bot"
     echo -e "6) Stop Bot"
-    echo -e "7) Exit"
+    echo -e "7) ${RED}Uninstall Completely${NC}"
+    echo -e "8) Exit"
     echo -e "${BLUE}========================================${NC}"
-    read -p "Select an option [1-7]: " choice
+    read -p "Select an option [1-8]: " choice
 
     case $choice in
         1) do_install ;;
@@ -254,7 +279,8 @@ while true; do
         4) do_status ;;
         5) do_restart ;;
         6) do_stop ;;
-        7) exit 0 ;;
+        7) do_uninstall ;;
+        8) exit 0 ;;
         *) echo -e "${RED}Invalid option.${NC}"; pause ;;
     esac
 done
