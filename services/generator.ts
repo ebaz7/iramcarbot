@@ -429,7 +429,7 @@ export const generatePythonCode = (): string => {
 import logging
 import json
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
 # Configuration
@@ -734,6 +734,8 @@ async def post_init(application):
             BotCommand("id", "🆔 دریافت شناسه عددی"),
             BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)")
         ])
+        # Explicitly set the menu button to commands
+        await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
         logger.info("Bot commands updated successfully.")
     except Exception as e:
         logger.error(f"Failed to set commands: {e}")

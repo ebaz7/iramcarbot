@@ -8,6 +8,7 @@ const TelegramMock: React.FC = () => {
   const [input, setInput] = useState('');
   const [botState, setBotState] = useState<BotState>(BotState.IDLE);
   const [estimateData, setEstimateData] = useState<EstimateData>({});
+  const [showMenu, setShowMenu] = useState(false);
   
   // Admin State
   const [isAdminMode, setIsAdminMode] = useState(false);
@@ -455,19 +456,37 @@ const TelegramMock: React.FC = () => {
     }
   };
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    const txt = input;
-    setInput('');
+  const handleSend = (textOverride?: string) => {
+    const txt = textOverride || input;
+    if (!txt.trim()) return;
+    
+    if (!textOverride) setInput('');
     addUserMessage(txt);
 
     // --- ADMIN COMMANDS ---
     // KEEPING /admin only for simulator toggle for user convenience, but bot logic uses buttons
     if (txt === '/admin') {
         setIsAdminMode(!isAdminMode); // Toggle mode for simulator
+        // Also simulate the bot response for the command
+        if (!isAdminMode) {
+             addBotMessage("🛠 **پنل مدیریت پیشرفته**\n\nگزینه مورد نظر را انتخاب کنید:", [
+                [{ text: "💾 مدیریت بکاپ و دیتابیس", callbackData: "admin_backup_menu" }],
+                [{ text: "👥 مدیریت ادمین‌ها", callbackData: "admin_manage_admins" }],
+                [{ text: "📂 آپدیت قیمت (اکسل)", callbackData: "admin_update_excel" }],
+                [{ text: "➕ افزودن تکی خودرو", callbackData: "admin_add_car" }],
+                [{ text: "⭐ تنظیم دکمه اسپانسر", callbackData: "admin_set_sponsor" }],
+                [{ text: "📣 ارسال پیام همگانی", callbackData: "admin_broadcast" }],
+                [{ text: "🔙 خروج از مدیریت", callbackData: "main_menu" }]
+            ]);
+        }
         return;
     }
     
+    if (txt === '/start') {
+        addBotMessage(getWelcomeMessage(), getMainMenuButtons());
+        return;
+    }
+
     if (txt === '/id') {
         addBotMessage(`🆔 شناسه کاربری شما: 123456789`);
         return;
@@ -687,8 +706,33 @@ const TelegramMock: React.FC = () => {
         </div>
 
         {/* Input Area */}
-        <div className="bg-white p-2 flex gap-2 items-center">
-             <Menu className="text-gray-400" />
+        <div className="bg-white p-2 flex gap-2 items-center relative">
+             {/* MENU POPUP */}
+             {showMenu && (
+                 <div className="absolute bottom-full left-2 mb-2 bg-white/90 backdrop-blur-md border border-gray-200 rounded-xl shadow-2xl w-64 overflow-hidden z-50">
+                     <div className="bg-gray-50 px-4 py-2 text-xs text-gray-500 font-bold border-b">دستورات ربات</div>
+                     <button onClick={() => { handleSend('/start'); setShowMenu(false); }} className="w-full text-right px-4 py-3 hover:bg-blue-50 text-sm text-gray-700 border-b border-gray-100 flex justify-between items-center group">
+                        <span className="font-mono text-blue-600 font-bold">/start</span>
+                        <span className="text-xs text-gray-400 group-hover:text-blue-500">منوی اصلی</span>
+                     </button>
+                     <button onClick={() => { handleSend('/id'); setShowMenu(false); }} className="w-full text-right px-4 py-3 hover:bg-blue-50 text-sm text-gray-700 border-b border-gray-100 flex justify-between items-center group">
+                        <span className="font-mono text-blue-600 font-bold">/id</span>
+                        <span className="text-xs text-gray-400 group-hover:text-blue-500">شناسه عددی</span>
+                     </button>
+                     <button onClick={() => { handleSend('/admin'); setShowMenu(false); }} className="w-full text-right px-4 py-3 hover:bg-blue-50 text-sm text-gray-700 flex justify-between items-center group">
+                        <span className="font-mono text-blue-600 font-bold">/admin</span>
+                        <span className="text-xs text-gray-400 group-hover:text-blue-500">پنل مدیریت</span>
+                     </button>
+                 </div>
+             )}
+
+             <button 
+                onClick={() => setShowMenu(!showMenu)}
+                className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+             >
+                 <Menu size={24} />
+             </button>
+
              <input 
                 type="text" 
                 value={input}
@@ -697,7 +741,7 @@ const TelegramMock: React.FC = () => {
                 placeholder="پیام خود را بنویسید..."
                 className="flex-1 bg-white outline-none text-sm text-gray-700"
              />
-             <button onClick={handleSend} className="text-[#517da2] hover:text-blue-600">
+             <button onClick={() => handleSend()} className="text-[#517da2] hover:text-blue-600">
                  <Send size={24} />
              </button>
         </div>
