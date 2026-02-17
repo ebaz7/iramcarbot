@@ -1,3 +1,4 @@
+
 export interface CarVariant {
   name: string;
   marketPrice: number; // In millions of Tomans
@@ -18,6 +19,24 @@ export interface CarBrand {
 export interface CarDatabase {
   [brand: string]: CarBrand;
 }
+
+// --- Mobile Types ---
+export interface MobileModel {
+  name: string;
+  price: number; // In millions
+  ram?: string;
+  storage?: string;
+}
+
+export interface MobileBrand {
+  name: string;
+  models: MobileModel[];
+}
+
+export interface MobileDatabase {
+  [brand: string]: MobileBrand;
+}
+// --------------------
 
 export interface ChatMessage {
   id: string;
@@ -45,6 +64,9 @@ export enum BotState {
   ESTIMATING_MILEAGE,
   ESTIMATING_PAINT,
   SEARCHING,
+  // Mobile States
+  BROWSING_MOBILE_BRANDS,
+  BROWSING_MOBILE_MODELS,
   // Support State
   SUPPORT_MESSAGE,
   // Admin States

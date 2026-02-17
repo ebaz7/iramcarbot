@@ -16,14 +16,16 @@ DEFAULT_CONFIG = {
     "market": {"label": "🌐 قیمت بازار", "url": "https://www.iranjib.ir/showgroup/45/", "active": True, "type": "webapp"},
     "prices": {"label": "📋 لیست قیمت", "active": True, "type": "internal"},
     "estimate": {"label": "💰 تخمین قیمت", "active": True, "type": "internal"},
+    "mobile_webapp": {"label": "📱 قیمت موبایل (سایت)", "url": "https://www.mobile.ir/phones/prices.aspx", "active": True, "type": "webapp"},
+    "mobile_list": {"label": "📲 لیست موبایل (ربات)", "active": True, "type": "internal"},
     "search": {"label": "🔍 جستجو", "active": True, "type": "internal"},
-    # Support is handled dynamically now, but kept here for toggle visibility
-    "support": {"label": "📞 پشتیبانی", "active": True, "type": "dynamic"} 
+    "support": {"label": "📞 پشتیبانی", "active": True, "type": "dynamic"}
 }
 
 # Load Database
 CAR_DB = {} 
-# ... (Insert Car DB Logic here if using full generator) ...
+MOBILE_DB = {}
+# ... (Insert DB Logic if using full generator) ...
 YEARS = [1404, 1403, 1402, 1401, 1400, 1399, 1398, 1397, 1396, 1395, 1394, 1393, 1392, 1391, 1390]
 PAINT_CONDITIONS = [
   {"label": "بدون رنگ (سالم)", "drop": 0},
@@ -55,7 +57,7 @@ STATE_ADMIN_SPONSOR_LINK = "ADM_SPONSOR_LINK"
 STATE_ADMIN_BROADCAST = "ADM_BCAST"
 STATE_ADMIN_EDIT_MENU_LABEL = "ADM_EDIT_LABEL"
 STATE_ADMIN_EDIT_MENU_URL = "ADM_EDIT_URL"
-STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT" # New State
+STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 
 # --- Data Management ---
 def load_data():
@@ -64,6 +66,9 @@ def load_data():
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 d = json.load(f)
                 if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
+                # Merge new defaults if missing
+                for k, v in DEFAULT_CONFIG.items():
+                    if k not in d["menu_config"]: d["menu_config"][k] = v
                 return d
         except: pass
     return {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG, "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."}}
@@ -103,30 +108,35 @@ def get_main_menu(user_id):
     
     keyboard = []
     
-    # Row 1: Web Apps
+    # Row 1: Web Apps (Cars)
     row1 = []
     if c["calc"]["active"]: row1.append(InlineKeyboardButton(c["calc"]["label"], web_app=WebAppInfo(url=c["calc"]["url"])))
     if c["market"]["active"]: row1.append(InlineKeyboardButton(c["market"]["label"], web_app=WebAppInfo(url=c["market"]["url"])))
     if row1: keyboard.append(row1)
 
-    # Row 2: Internal Features
+    # Row 2: Car Internal
     row2 = []
     if c["prices"]["active"]: row2.append(InlineKeyboardButton(c["prices"]["label"], callback_data="menu_prices"))
     if c["estimate"]["active"]: row2.append(InlineKeyboardButton(c["estimate"]["label"], callback_data="menu_estimate"))
     if row2: keyboard.append(row2)
 
-    # Row 3: Utilities + Support
+    # Row 3: Mobile Section
     row3 = []
-    if c["search"]["active"]: row3.append(InlineKeyboardButton(c["search"]["label"], callback_data="menu_search"))
+    if c.get("mobile_webapp", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_webapp"]["label"], web_app=WebAppInfo(url=c["mobile_webapp"]["url"])))
+    if c.get("mobile_list", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_list"]["label"], callback_data="menu_mobile_list"))
+    if row3: keyboard.append(row3)
+
+    # Row 4: Utilities + Support
+    row4 = []
+    if c["search"]["active"]: row4.append(InlineKeyboardButton(c["search"]["label"], callback_data="menu_search"))
     
     if c["support"]["active"]:
-        # Check if support is configured as a LINK or TEXT
         if sup_conf["mode"] == "link":
-             row3.append(InlineKeyboardButton(c["support"]["label"], url=sup_conf["value"]))
+             row4.append(InlineKeyboardButton(c["support"]["label"], url=sup_conf["value"]))
         else:
-             row3.append(InlineKeyboardButton(c["support"]["label"], callback_data="menu_support"))
+             row4.append(InlineKeyboardButton(c["support"]["label"], callback_data="menu_support"))
     
-    if row3: keyboard.append(row3)
+    if row4: keyboard.append(row4)
 
     if is_admin(user_id): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
     
@@ -144,7 +154,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     register_user(user_id)
     reset_state(user_id)
-    await update.message.reply_text(f"👋 سلام! به ربات قیمت خودرو خوش آمدید.\\n📅 امروز: {datetime.date.today()}", reply_markup=get_main_menu(user_id))
+    await update.message.reply_text(f"👋 سلام! به ربات قیمت خودرو و موبایل خوش آمدید.\\n📅 امروز: {datetime.date.today()}", reply_markup=get_main_menu(user_id))
 
 async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -321,6 +331,44 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sup_conf = d.get("support_config", {"mode": "text", "value": "..."})
         text_val = sup_conf["value"]
         await query.message.reply_text(f"📞 **اطلاعات پشتیبانی:**\\n\\n{text_val}", parse_mode='Markdown')
+        return
+
+    # --- MOBILE FLOW ---
+    if data == "menu_mobile_list":
+        keyboard = []
+        for brand in MOBILE_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"mob_brand_{brand}")])
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
+        await query.edit_message_text("📱 برند موبایل را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("mob_brand_"):
+        brand_name = data.replace("mob_brand_", "")
+        if brand_name in MOBILE_DB:
+            keyboard = []
+            for model in MOBILE_DB[brand_name]["models"]:
+                keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"mob_model_{brand_name}_{model['name']}")])
+            keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")])
+            await query.edit_message_text(f"مدل‌های {brand_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("mob_model_"):
+        parts = data.split("_")
+        brand_name = parts[2]
+        model_name = parts[3]
+        
+        found_model = None
+        if brand_name in MOBILE_DB:
+            for m in MOBILE_DB[brand_name]["models"]:
+                if m["name"] == model_name: found_model = m; break
+        
+        if found_model:
+            text = (f"📱 **قیمت روز موبایل**\\n"
+                    f"🏷 مدل: {found_model['name']}\\n"
+                    f"💾 حافظه: {found_model.get('storage', '-')}\\n"
+                    f"-------------------\\n"
+                    f"💰 **قیمت تقریبی:** {found_model['price']} میلیون تومان")
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"mob_brand_{brand_name}")]]
+            await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     # --- CAR ESTIMATION FLOW ---

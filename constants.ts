@@ -1,4 +1,5 @@
-import { CarDatabase } from './types';
+
+import { CarDatabase, MobileDatabase } from './types';
 
 // Updated Mock Data - Late 1403 / Early 1404
 export const CAR_DB: CarDatabase = {
@@ -183,6 +184,36 @@ export const CAR_DB: CarDatabase = {
           { name: "سوبا M4", marketPrice: 2250, factoryPrice: 1850 }
         ]
       }
+    ]
+  }
+};
+
+export const MOBILE_DB: MobileDatabase = {
+  "Apple": {
+    name: "اپل (Apple)",
+    models: [
+      { name: "iPhone 13 CH", price: 39.5, storage: "128GB" },
+      { name: "iPhone 13 CH", price: 48.0, storage: "256GB" },
+      { name: "iPhone 11 (استوک)", price: 24.0, storage: "128GB" }
+    ]
+  },
+  "Samsung": {
+    name: "سامسونگ (Samsung)",
+    models: [
+      { name: "Galaxy S24 Ultra", price: 72.0, storage: "256GB" },
+      { name: "Galaxy S23 FE", price: 26.5, storage: "256GB" },
+      { name: "Galaxy A55", price: 21.0, storage: "256GB" },
+      { name: "Galaxy A35", price: 16.5, storage: "128GB" },
+      { name: "Galaxy A15", price: 7.8, storage: "128GB" }
+    ]
+  },
+  "Xiaomi": {
+    name: "شیائومی (Xiaomi)",
+    models: [
+      { name: "Redmi Note 13 Pro+", price: 23.0, storage: "512GB" },
+      { name: "Redmi Note 13 4G", price: 9.5, storage: "256GB" },
+      { name: "Poco X6 Pro", price: 18.8, storage: "512GB" },
+      { name: "Xiaomi 14T", price: 34.0, storage: "512GB" }
     ]
   }
 };

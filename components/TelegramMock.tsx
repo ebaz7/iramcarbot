@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BotState, ChatMessage, InlineButton, EstimateData } from '../types';
-import { CAR_DB, YEARS, PAINT_CONDITIONS } from '../constants';
+import { CAR_DB, MOBILE_DB, YEARS, PAINT_CONDITIONS } from '../constants';
 import { Send, Menu, ArrowLeft, RefreshCw, ShieldAlert, Users, Megaphone, Star, Upload, FileSpreadsheet, Download, Clock, Filter, Phone, UserPlus, Globe, Database, Save, Settings } from 'lucide-react';
 
 // Default Config similar to Python
@@ -9,6 +9,8 @@ const DEFAULT_MENU_CONFIG: any = {
     "market": {"label": "🌐 قیمت بازار", "url": "https://www.iranjib.ir/showgroup/45/", "active": true, "type": "webapp"},
     "prices": {"label": "📋 لیست قیمت", "active": true, "type": "internal"},
     "estimate": {"label": "💰 تخمین قیمت", "active": true, "type": "internal"},
+    "mobile_webapp": {"label": "📱 قیمت موبایل (سایت)", "url": "https://www.mobile.ir/phones/prices.aspx", "active": true, "type": "webapp"},
+    "mobile_list": {"label": "📲 لیست موبایل (ربات)", "active": true, "type": "internal"},
     "search": {"label": "🔍 جستجو", "active": true, "type": "internal"},
     "support": {"label": "📞 پشتیبانی", "active": true, "type": "internal"}
 };
@@ -53,38 +55,44 @@ const TelegramMock: React.FC = () => {
 
   const getWelcomeMessage = () => {
       const today = new Date().toLocaleDateString('fa-IR');
-      return `👋 سلام! به جامع‌ترین ربات قیمت خودرو ایران خوش آمدید.\n📅 امروز: ${today}\n\nمنوی اصلی:`;
+      return `👋 سلام! به جامع‌ترین ربات قیمت خودرو و موبایل خوش آمدید.\n📅 امروز: ${today}\n\nمنوی اصلی:`;
   }
 
   const getMainMenuButtons = (): InlineButton[][] => {
       const buttons: InlineButton[][] = [];
       const c = menuConfig;
 
-      // Row 1: Web Apps
+      // Row 1: Web Apps (Cars)
       const row1 = [];
       if (c["calc"].active) row1.push({ text: c["calc"].label, webAppUrl: c["calc"].url });
       if (c["market"].active) row1.push({ text: c["market"].label, webAppUrl: c["market"].url });
       if (row1.length > 0) buttons.push(row1);
 
-      // Row 2: Internal Features
+      // Row 2: Car Internal
       const row2 = [];
       if (c["prices"].active) row2.push({ text: c["prices"].label, callbackData: "menu_prices" });
       if (c["estimate"].active) row2.push({ text: c["estimate"].label, callbackData: "menu_estimate" });
       if (row2.length > 0) buttons.push(row2);
 
-      // Row 3: Utilities
+      // Row 3: Mobile Section (New)
       const row3 = [];
-      if (c["search"].active) row3.push({ text: c["search"].label, callbackData: "menu_search" });
+      if (c["mobile_webapp"]?.active) row3.push({ text: c["mobile_webapp"].label, webAppUrl: c["mobile_webapp"].url });
+      if (c["mobile_list"]?.active) row3.push({ text: c["mobile_list"].label, callbackData: "menu_mobile_list" });
+      if (row3.length > 0) buttons.push(row3);
+
+      // Row 4: Utilities
+      const row4 = [];
+      if (c["search"].active) row4.push({ text: c["search"].label, callbackData: "menu_search" });
       
       if (c["support"].active) {
           // Check support config
           if (supportConfig.mode === "link") {
-              row3.push({ text: c["support"].label, url: supportConfig.value });
+              row4.push({ text: c["support"].label, url: supportConfig.value });
           } else {
-              row3.push({ text: c["support"].label, callbackData: "menu_support" });
+              row4.push({ text: c["support"].label, callbackData: "menu_support" });
           }
       }
-      if (row3.length > 0) buttons.push(row3);
+      if (row4.length > 0) buttons.push(row4);
 
       // MAGIC: Automatically add Admin Button if user is Admin
       if (isAdminMode) {
@@ -160,19 +168,56 @@ const TelegramMock: React.FC = () => {
 
     if (callbackData === 'main_menu') {
       setBotState(BotState.IDLE);
-      // setIsAdminMode(false); // Do not reset admin mode to simulate session persistence
       addBotMessage(getWelcomeMessage(), getMainMenuButtons());
       return;
     }
 
     // --- Support Flow ---
     if (callbackData === 'menu_support') {
-        // Now dynamic based on supportConfig
         addBotMessage(`📞 **اطلاعات پشتیبانی:**\n\n${supportConfig.value}`, [[{ text: "🔙 بازگشت", callbackData: "main_menu" }]]);
         return;
     }
 
-    // --- ADMIN HOME (The Button Handler) ---
+    // --- MOBILE FLOW (NEW) ---
+    if (callbackData === "menu_mobile_list") {
+        setBotState(BotState.BROWSING_MOBILE_BRANDS);
+        const buttons = Object.keys(MOBILE_DB).map(brand => [{ text: brand, callbackData: `mob_brand_${brand}` }]);
+        buttons.push([{ text: "🔙 بازگشت", callbackData: "main_menu" }]);
+        addBotMessage("📱 برند موبایل را انتخاب کنید:", buttons);
+        return;
+    }
+
+    if (callbackData.startsWith("mob_brand_")) {
+        const brandName = callbackData.replace("mob_brand_", "");
+        if (MOBILE_DB[brandName]) {
+            setBotState(BotState.BROWSING_MOBILE_MODELS);
+            const buttons = MOBILE_DB[brandName].models.map(m => [{ text: m.name, callbackData: `mob_model_${brandName}_${m.name}` }]);
+            buttons.push([{ text: "🔙 بازگشت", callbackData: "menu_mobile_list" }]);
+            addBotMessage(`مدل‌های ${brandName}:`, buttons);
+        }
+        return;
+    }
+
+    if (callbackData.startsWith("mob_model_")) {
+        const parts = callbackData.split("_");
+        const brandName = parts[2];
+        const modelName = parts[3];
+        const model = MOBILE_DB[brandName]?.models.find(m => m.name === modelName);
+
+        if (model) {
+            const text = `📱 **قیمت روز موبایل**\n` +
+                         `🏷 مدل: ${model.name}\n` +
+                         `💾 حافظه: ${model.storage || '-'}\n` +
+                         `-------------------\n` +
+                         `💰 **قیمت تقریبی:** ${model.price} میلیون تومان`;
+            
+            addBotMessage(text, [[{ text: "🔙 بازگشت", callbackData: `mob_brand_${brandName}` }]]);
+        }
+        return;
+    }
+
+
+    // --- ADMIN HOME ---
     if (callbackData === 'admin_home') {
         addBotMessage("🛠 **پنل مدیریت پیشرفته**\n\nگزینه مورد نظر را انتخاب کنید:", [
             [{ text: "⚙️ مدیریت دکمه‌ها و منو", callbackData: "admin_menus" }],
@@ -233,13 +278,9 @@ const TelegramMock: React.FC = () => {
             ...prev,
             [key]: { ...prev[key], active: !prev[key].active }
         }));
-        // Re-simulate pressing edit menu to refresh view
         const newStatus = !menuConfig[key].active ? "✅ فعال" : "❌ غیرفعال";
-        // Small delay to make it feel like an interaction
         setTimeout(() => {
-             // In real bot we answer callback query then refresh message. Here we just add new message for simulation context
              addBotMessage(`دکمه ${newStatus} شد. بازگشت به تنظیمات...`);
-             // Simulate "going back" to edit screen
              setTimeout(() => handleCallback({ text: "", callbackData: `edit_menu_${key}` }), 500);
         }, 300);
         return;
@@ -364,7 +405,7 @@ const TelegramMock: React.FC = () => {
       }
     }
     else if (callbackData.startsWith('variant_')) {
-      const parts = callbackData.split('_');
+      const parts = callbackData.split("_");
       const modelName = parts[1];
       const variantIdx = parseInt(parts[2]);
 
