@@ -94,15 +94,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Force updates the menu commands manually"""
+    user_id = update.effective_user.id
     try:
+        # 1. Update Global Commands
         await context.bot.delete_my_commands()
         await context.bot.set_my_commands([
             BotCommand("start", "🏠 منوی اصلی"),
             BotCommand("id", "🆔 دریافت شناسه عددی"),
-            BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)")
+            BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)"),
+            BotCommand("fixmenu", "🔧 تعمیر دکمه منو")
         ])
+        
+        # 2. Set Default Menu Button (Global)
         await context.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
-        await update.message.reply_text("✅ دکمه منوی آبی و لیست دستورات با موفقیت آپدیت شد.\nاگر هنوز نمی‌بینید، تلگرام را ببندید و باز کنید.")
+        
+        # 3. FORCE Set Menu Button for THIS User specifically
+        await context.bot.set_chat_menu_button(chat_id=user_id, menu_button=MenuButtonCommands())
+        
+        await update.message.reply_text("✅ دکمه منوی آبی (دستورات) برای شما به زور فعال شد!\\n\\nاگر هنوز نمی‌بینید، تلگرام را کامل ببندید و باز کنید.")
     except Exception as e:
         await update.message.reply_text(f"❌ خطا: {e}")
 
@@ -320,7 +329,8 @@ async def post_init(application):
         await application.bot.set_my_commands([
             BotCommand("start", "🏠 منوی اصلی"),
             BotCommand("id", "🆔 دریافت شناسه عددی"),
-            BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)")
+            BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)"),
+            BotCommand("fixmenu", "🔧 تعمیر دکمه منو")
         ])
         # Explicitly set the menu button to commands
         await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
