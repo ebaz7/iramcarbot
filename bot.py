@@ -1,859 +1,262 @@
 import logging
 import json
 import os
-import random
-import jdatetime
-import pandas as pd
-from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
 # Configuration
-TOKEN = 'REPLACE_ME_TOKEN'
-OWNER_ID = 0  # REPLACE_ME_ADMIN_ID
+TOKEN = 'REPLACE_ME_TOKEN' 
+OWNER_ID = 0
 DATA_FILE = 'bot_data.json'
-EXCEL_FILE = 'prices.xlsx'
-CHANNEL_URL = 'https://t.me/CarPrice_Channel' 
 
-# Logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
-# States
-(SELECT_BRAND, SELECT_MODEL, SELECT_VARIANT, 
- EST_BRAND, EST_MODEL, EST_YEAR, EST_MILEAGE, EST_PAINT,
- ADMIN_MENU, DOWNLOAD_TEMPLATE, UPLOAD_EXCEL, ADD_BRAND, ADD_MODEL, ADD_VARIANT, ADD_PRICE, 
- SET_SPONSOR_NAME, SET_SPONSOR_URL, 
- BROADCAST_MENU, BROADCAST_GET_TIME, BROADCAST_GET_CONTENT, 
- MANAGE_ADMINS, ADD_NEW_ADMIN, 
- SUPPORT_GET_MSG,
- BACKUP_MENU, SET_BACKUP_INTERVAL, RESTORE_BACKUP) = range(26)
-
-# --- DEPRECIATION CONSTANTS ---
+# Load Database (Default data will be injected here by generator if needed, or loaded from JSON)
+CAR_DB = {} # This will be populated by the file generator string interpolation
+YEARS = [1404, 1403, 1402, 1401, 1400, 1399, 1398, 1397, 1396, 1395, 1394, 1393, 1392, 1391, 1390]
 PAINT_CONDITIONS = [
-  {"label": "بدون رنگ", "drop": 0},
-  {"label": "خط و خش جزئی", "drop": 0.02},
-  {"label": "یک لکه رنگ", "drop": 0.04},
+  {"label": "بدون رنگ (سالم)", "drop": 0},
+  {"label": "لیسه گیری / خط و خش جزئی", "drop": 0.02},
+  {"label": "یک لکه رنگ (گلگیر/درب)", "drop": 0.04},
   {"label": "دو لکه رنگ", "drop": 0.07},
   {"label": "یک درب/گلگیر تعویض", "drop": 0.05},
   {"label": "دور رنگ", "drop": 0.25},
-  {"label": "سقف و ستون", "drop": 0.40},
+  {"label": "سقف و ستون رنگ", "drop": 0.40},
   {"label": "تمام رنگ", "drop": 0.35},
-  {"label": "تعویض اتاق", "drop": 0.30}
+  {"label": "تعویض اتاق (قانونی)", "drop": 0.30}
 ]
 
-# --- DEFAULT DATA ---
-DEFAULT_CARS = {
-    "ایران خودرو": {
-        "name": "ایران خودرو",
-        "models": [
-            {
-                "name": "پژو 207",
-                "variants": [
-                    {"name": "207 دنده‌ای هیدرولیک (TU5)", "marketPrice": 830, "factoryPrice": 470},
-                    {"name": "207 دنده‌ای ارتقا یافته (فول)", "marketPrice": 890, "factoryPrice": 510},
-                    {"name": "207 اتوماتیک سقف شیشه ای", "marketPrice": 1180, "factoryPrice": 610},
-                    {"name": "207 اتوماتیک TU5P", "marketPrice": 1100, "factoryPrice": 590}
-                ]
-            },
-            {
-                "name": "دنا",
-                "variants": [
-                    {"name": "دنا پلاس 6 دنده دستی", "marketPrice": 1080, "factoryPrice": 560},
-                    {"name": "دنا پلاس توربو اتوماتیک آپشنال", "marketPrice": 1320, "factoryPrice": 700},
-                    {"name": "دنا پلاس جوانان", "marketPrice": 1420, "factoryPrice": 750}
-                ]
-            },
-            {
-                "name": "تارا",
-                "variants": [
-                    {"name": "تارا دستی V1 پلاس", "marketPrice": 950, "factoryPrice": 590},
-                    {"name": "تارا اتوماتیک V4 LX", "marketPrice": 1350, "factoryPrice": 690}
-                ]
-            },
-            {
-                "name": "هایما",
-                "variants": [
-                    {"name": "هایما S7 پلاس", "marketPrice": 1900, "factoryPrice": 1190},
-                    {"name": "هایما S5 جدید", "marketPrice": 1550, "factoryPrice": 1050},
-                    {"name": "هایما 8S", "marketPrice": 2100, "factoryPrice": 1370},
-                    {"name": "هایما 7X", "marketPrice": 1950, "factoryPrice": 1480}
-                ]
-            }
-        ]
-    },
-    "سایپا": {
-        "name": "سایپا",
-        "models": [
-            {
-                "name": "شاهین",
-                "variants": [
-                    {"name": "شاهین G (دنده‌ای)", "marketPrice": 810, "factoryPrice": 440},
-                    {"name": "شاهین GL (بدون سانروف)", "marketPrice": 780, "factoryPrice": 420},
-                    {"name": "شاهین اتوماتیک CVT", "marketPrice": 960, "factoryPrice": 650}
-                ]
-            },
-            {
-                "name": "کوییک",
-                "variants": [
-                    {"name": "کوییک GXR-L (رینگ آلومینیومی)", "marketPrice": 495, "factoryPrice": 390},
-                    {"name": "کوییک GX-L", "marketPrice": 475, "factoryPrice": 370},
-                    {"name": "کوییک اتوماتیک", "marketPrice": 600, "factoryPrice": 340}
-                ]
-            },
-            {
-                "name": "اطلس",
-                "variants": [
-                    {"name": "اطلس G", "marketPrice": 650, "factoryPrice": 415}
-                ]
-            },
-            {
-                "name": "سهند",
-                "variants": [
-                    {"name": "سهند S", "marketPrice": 580, "factoryPrice": 440}
-                ]
-            }
-        ]
-    },
-    "مدیران خودرو": {
-        "name": "مدیران خودرو",
-        "models": [
-            {
-                "name": "X22 / X33",
-                "variants": [
-                    {"name": "X22 Pro دنده‌ای", "marketPrice": 1020, "factoryPrice": 710},
-                    {"name": "X33 Cross اتوماتیک", "marketPrice": 1400, "factoryPrice": 1050}
-                ]
-            },
-            {
-                "name": "آریزو",
-                "variants": [
-                    {"name": "آریزو 5 اسپورت FL", "marketPrice": 1500, "factoryPrice": 1100},
-                    {"name": "آریزو 6 پرو", "marketPrice": 1700, "factoryPrice": 1250},
-                    {"name": "آریزو 8 اکسلنت", "marketPrice": 3000, "factoryPrice": 2200}
-                ]
-            },
-            {
-                "name": "تیگو",
-                "variants": [
-                    {"name": "تیگو 7 پرو پرمیوم", "marketPrice": 2200, "factoryPrice": 1550},
-                    {"name": "تیگو 8 پرو مکس IE", "marketPrice": 3250, "factoryPrice": 2690},
-                    {"name": "تیگو 8 پرو e+ (هیبرید)", "marketPrice": 3400, "factoryPrice": 2800}
-                ]
-            },
-            {
-                "name": "فونیکس",
-                "variants": [
-                    {"name": "فونیکس FX پرمیوم", "marketPrice": 2550, "factoryPrice": 1750}
-                ]
-            }
-        ]
-    },
-    "کرمان موتور": {
-        "name": "کرمان موتور",
-        "models": [
-            {
-                "name": "JAC",
-                "variants": [
-                    {"name": "جک J4 آپشنال", "marketPrice": 960, "factoryPrice": 790},
-                    {"name": "جک S3 اتوماتیک", "marketPrice": 1350, "factoryPrice": 930}
-                ]
-            },
-            {
-                "name": "KMC",
-                "variants": [
-                    {"name": "KMC T8", "marketPrice": 1780, "factoryPrice": 1350},
-                    {"name": "KMC T9", "marketPrice": 2500, "factoryPrice": 1950},
-                    {"name": "KMC J7", "marketPrice": 1850, "factoryPrice": 1380},
-                    {"name": "KMC X5", "marketPrice": 1950, "factoryPrice": 1400},
-                    {"name": "KMC A5", "marketPrice": 1800, "factoryPrice": 1300}
-                ]
-            }
-        ]
-    },
-    "بهمن موتور": {
-        "name": "بهمن موتور",
-        "models": [
-            {
-                "name": "فیدلیتی",
-                "variants": [
-                    {"name": "فیدلیتی پرایم 5 نفره", "marketPrice": 2000, "factoryPrice": 1350},
-                    {"name": "فیدلیتی پرایم 7 نفره", "marketPrice": 2100, "factoryPrice": 1360},
-                    {"name": "فیدلیتی پرستیژ 7 نفره", "marketPrice": 2850, "factoryPrice": 1720}
-                ]
-            },
-            {
-                "name": "دیگنیتی",
-                "variants": [
-                    {"name": "دیگنیتی پرایم", "marketPrice": 2150, "factoryPrice": 1500},
-                    {"name": "دیگنیتی پرستیژ", "marketPrice": 2700, "factoryPrice": 1750}
-                ]
-            },
-            {
-                "name": "ریسپکت",
-                "variants": [
-                    {"name": "ریسپکت 2", "marketPrice": 1600, "factoryPrice": 1150}
-                ]
-            }
-        ]
-    },
-    "آرین پارس": {
-        "name": "آرین پارس موتور",
-        "models": [
-            {
-                "name": "لاماری",
-                "variants": [
-                    {"name": "لاماری ایما", "marketPrice": 2100, "factoryPrice": 1430},
-                    {"name": "لاماری ایما HEV (هیبرید)", "marketPrice": 2600, "factoryPrice": 1800}
-                ]
-            }
-        ]
-    },
-    "فردا موتورز": {
-        "name": "فردا موتورز",
-        "models": [
-            {
-                "name": "FMC",
-                "variants": [
-                    {"name": "FMC SX5", "marketPrice": 1320, "factoryPrice": 980},
-                    {"name": "FMC T5", "marketPrice": 1700, "factoryPrice": 1300}
-                ]
-            },
-            {
-                "name": "Suba",
-                "variants": [
-                    {"name": "سوبا M4", "marketPrice": 2250, "factoryPrice": 1850}
-                ]
-            }
-        ]
-    }
-}
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# --- Data Management ---
+user_states = {}
+STATE_IDLE = "IDLE"
+STATE_ESTIMATE_BRAND = "EST_BRAND"
+STATE_ESTIMATE_MODEL = "EST_MODEL"
+STATE_ESTIMATE_YEAR = "EST_YEAR"
+STATE_ESTIMATE_MILEAGE = "EST_MILEAGE"
+STATE_ESTIMATE_PAINT = "EST_PAINT"
+
+# --- Backup Logic ---
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                if not data.get('cars'):
-                    data['cars'] = DEFAULT_CARS
                 return data
         except: pass
-    return {
-        "cars": DEFAULT_CARS, 
-        "sponsor": {}, 
-        "users": {}, 
-        "last_update": "پیش‌فرض", 
-        "admins": [],
-        "backup_interval": 0 # hours, 0 means off
-    }
+    return {"backup_interval": 0} # Default
 
-def save_data(data):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-def get_db():
-    return load_data().get("cars", {})
-
-def get_last_update():
-    return load_data().get("last_update", "نامشخص")
-
-def is_admin(user_id):
-    if str(user_id) == str(OWNER_ID):
-        return True
-    data = load_data()
-    return user_id in data.get("admins", [])
-
-def add_admin(new_admin_id):
-    data = load_data()
-    if "admins" not in data: data["admins"] = []
-    if new_admin_id not in data["admins"] and str(new_admin_id) != str(OWNER_ID):
-        data["admins"].append(new_admin_id)
-        save_data(data)
-        return True
-    return False
-
-def get_all_admins():
-    data = load_data()
-    admins = data.get("admins", [])
-    if OWNER_ID != 0:
-        admins.append(OWNER_ID)
-    return list(set(admins))
-
-def log_user(user_id):
-    data = load_data()
-    uid_str = str(user_id)
-    if 'users' not in data or isinstance(data['users'], list):
-        old_list = data.get('users', [])
-        data['users'] = {str(u): str(datetime.now()) for u in old_list}
-    data['users'][uid_str] = str(datetime.now())
-    save_data(data)
-
-# --- Helper: Footer ---
-def attach_footer(keyboard):
-    data = load_data()
-    sponsor = data.get("sponsor", {})
-    footer_row = [InlineKeyboardButton("📢 کانال ما", url=CHANNEL_URL)]
-    if sponsor.get("name") and sponsor.get("url"):
-        footer_row.append(InlineKeyboardButton(f"⭐ {sponsor['name']}", url=sponsor['url']))
-    keyboard.append(footer_row)
-    return keyboard
-
-# --- Auto Backup Logic ---
 async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
-    if os.path.exists(DATA_FILE):
+    if os.path.exists(DATA_FILE) and OWNER_ID != 0:
         try:
             await context.bot.send_document(
                 chat_id=OWNER_ID,
                 document=open(DATA_FILE, 'rb'),
-                caption="💾 **بکاپ خودکار دیتابیس**"
+                caption="💾 Auto-Backup"
             )
         except Exception as e:
-            logging.error(f"Backup failed: {e}")
+            logger.error(f"Backup failed: {e}")
 
-# --- Admin Handlers ---
-async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+# --- Helper Functions ---
+def get_state(user_id):
+    if user_id not in user_states: user_states[user_id] = {"state": STATE_IDLE, "data": {}}
+    return user_states[user_id]
+def set_state(user_id, state):
+    if user_id not in user_states: user_states[user_id] = {"state": state, "data": {}}
+    else: user_states[user_id]["state"] = state
+def update_data(user_id, key, value):
+    if user_id in user_states: user_states[user_id]["data"][key] = value
+def reset_state(user_id):
+    user_states[user_id] = {"state": STATE_IDLE, "data": {}}
+
+# --- Keyboards ---
+def get_main_menu(user_id):
+    keyboard = [
+        [InlineKeyboardButton("🧮 ماشین‌حساب (سایت)", web_app=WebAppInfo(url="https://www.hamrah-mechanic.com/carprice/")), InlineKeyboardButton("🌐 قیمت بازار (سایت)", web_app=WebAppInfo(url="https://www.iranjib.ir/showgroup/45/"))],
+        [InlineKeyboardButton("📋 لیست قیمت (ربات)", callback_data="menu_prices"), InlineKeyboardButton("💰 تخمین قیمت (ربات)", callback_data="menu_estimate")],
+        [InlineKeyboardButton("🔍 جستجو", callback_data="menu_search"), InlineKeyboardButton("📞 پشتیبانی", callback_data="menu_support")]
+    ]
+    if str(user_id) == str(OWNER_ID): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
+    keyboard.append([InlineKeyboardButton("📢 کانال ما", url="https://t.me/CarPrice_Channel")])
+    return InlineKeyboardMarkup(keyboard)
+
+# --- Handlers ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        if query: await query.answer("⛔ شما دسترسی ادمین ندارید.", show_alert=True)
-        else: await update.message.reply_text("⛔ شما دسترسی ادمین ندارید.")
-        return ConversationHandler.END
-    
-    if query: await query.answer()
-    
-    keyboard = [
-        [InlineKeyboardButton("👥 مدیریت ادمین‌ها", callback_data='adm_manage_admins')],
-        [InlineKeyboardButton("📂 آپدیت قیمت (اکسل)", callback_data='adm_excel')],
-        [InlineKeyboardButton("➕ افزودن تکی خودرو", callback_data='adm_add_single')],
-        [InlineKeyboardButton("⭐ تنظیم اسپانسر", callback_data='adm_sponsor')],
-        [InlineKeyboardButton("📣 ارسال همگانی پیشرفته", callback_data='adm_broadcast')],
-        [InlineKeyboardButton("💾 مدیریت بکاپ (Backup)", callback_data='adm_backup')],
-        [InlineKeyboardButton("🔙 خروج", callback_data='main_menu')]
-    ]
-    
-    text = "🛠 **پنل مدیریت**\\nگزینه مورد نظر را انتخاب کنید:"
-    if query:
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    else:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        
-    return ADMIN_MENU
+    reset_state(user_id)
+    await update.message.reply_text(f"👋 سلام! منوی اصلی:", reply_markup=get_main_menu(user_id))
 
-async def adm_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    user_id = query.from_user.id
+    data = query.data
     await query.answer()
-    choice = query.data
     
-    if choice == 'adm_manage_admins':
-        keyboard = [
-            [InlineKeyboardButton("➕ افزودن ادمین", callback_data='add_admin')],
-            [InlineKeyboardButton("📜 لیست ادمین‌ها", callback_data='list_admins')],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data='admin_home')]
-        ]
-        await query.edit_message_text("👥 بخش مدیریت دسترسی‌ها:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return MANAGE_ADMINS
+    if data == "main_menu":
+        reset_state(user_id)
+        await query.edit_message_text(text="منوی اصلی:", reply_markup=get_main_menu(user_id))
+        return
+
+    if data == "menu_prices":
+        keyboard = []
+        for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
+        await query.edit_message_text("🏢 شرکت سازنده:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("brand_"):
+        brand_name = data.replace("brand_", "")
+        current_state = get_state(user_id)["state"]
+        if current_state == STATE_ESTIMATE_BRAND:
+            update_data(user_id, "brand", brand_name)
+            set_state(user_id, STATE_ESTIMATE_MODEL)
+            keyboard = []
+            if brand_name in CAR_DB:
+                for model in CAR_DB[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
+            keyboard.append([InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")])
+            await query.edit_message_text(f"خودروی {brand_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
         
-    elif choice == 'adm_excel':
-        # (Existing Excel Logic)
-        data = load_data()
-        rows = []
-        cars = data.get("cars", {})
-        for brand, b_data in cars.items():
-            for model in b_data['models']:
-                for variant in model['variants']:
-                    rows.append({
-                        "Brand": brand,
-                        "Model": model['name'],
-                        "Variant": variant['name'],
-                        "MarketPrice": variant['marketPrice'],
-                        "FactoryPrice": variant['factoryPrice']
-                    })
-        if not rows:
-             rows.append({"Brand": "Example Brand", "Model": "Model X", "Variant": "Automatic", "MarketPrice": 1000, "FactoryPrice": 500})
-        df = pd.DataFrame(rows)
-        df.to_excel(EXCEL_FILE, index=False)
-        await query.message.reply_document(
-            document=open(EXCEL_FILE, 'rb'), 
-            caption="📂 **فایل قیمت‌های فعلی**\\n\\n1. دانلود و ویرایش کنید.\\n2. **فایل ویرایش شده را همینجا ارسال کنید.**"
-        )
-        return UPLOAD_EXCEL
+        if brand_name in CAR_DB:
+            keyboard = []
+            for model in CAR_DB[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
+            keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")])
+            await query.edit_message_text(f"مدل‌های {brand_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
 
-    elif choice == 'adm_backup':
-        data = load_data()
-        interval = data.get("backup_interval", 0)
-        status = f"✅ فعال (هر {interval} ساعت)" if interval > 0 else "❌ غیرفعال"
+    if data.startswith("model_"):
+        model_name = data.replace("model_", "")
+        current_state = get_state(user_id)["state"]
+        if current_state == STATE_ESTIMATE_MODEL:
+            update_data(user_id, "model", model_name)
+            set_state(user_id, STATE_ESTIMATE_YEAR)
+            keyboard = []
+            row = []
+            for i, year in enumerate(YEARS):
+                row.append(InlineKeyboardButton(str(year), callback_data=f"year_{year}"))
+                if (i + 1) % 3 == 0: keyboard.append(row); row = []
+            if row: keyboard.append(row)
+            await query.edit_message_text("سال ساخت:", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        found_model, brand_name = None, ""
+        for b_name, b_data in CAR_DB.items():
+            for m in b_data["models"]:
+                if m["name"] == model_name: found_model = m; brand_name = b_name; break
         
-        keyboard = [
-            [InlineKeyboardButton("📥 دریافت بکاپ آنی", callback_data='get_backup_now')],
-            [InlineKeyboardButton("⏱ تنظیم بکاپ خودکار", callback_data='set_backup_auto')],
-            [InlineKeyboardButton("📤 بازگردانی بکاپ (Restore)", callback_data='restore_backup')],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data='admin_home')]
-        ]
-        await query.edit_message_text(f"💾 **مدیریت بکاپ و دیتابیس**\\n\\nوضعیت بکاپ خودکار: {status}", reply_markup=InlineKeyboardMarkup(keyboard))
-        return BACKUP_MENU
+        if found_model:
+            keyboard = []
+            for idx, variant in enumerate(found_model["variants"]):
+                keyboard.append([InlineKeyboardButton(variant["name"], callback_data=f"variant_{model_name}_{idx}")])
+            keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"brand_{brand_name}")])
+            await query.edit_message_text(f"تیپ خودرو {model_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
 
-    elif choice == 'adm_add_single':
-        await query.edit_message_text("نام کمپانی (برند) را وارد کنید:")
-        return ADD_BRAND
-    elif choice == 'adm_sponsor':
-        await query.edit_message_text("نام اسپانسر را وارد کنید:")
-        return SET_SPONSOR_NAME
-    elif choice == 'adm_broadcast':
-        keyboard = [
-            [InlineKeyboardButton("👥 ارسال به همه", callback_data='bcast_all')],
-            [InlineKeyboardButton("🔥 کاربران فعال (۳۰ روز اخیر)", callback_data='bcast_active')],
-            [InlineKeyboardButton("⏳ زمان‌بندی شده", callback_data='bcast_schedule')],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data='admin_home')]
-        ]
-        await query.edit_message_text("📢 **نوع ارسال را انتخاب کنید:**", reply_markup=InlineKeyboardMarkup(keyboard))
-        return BROADCAST_MENU
-    elif choice == 'main_menu':
-        await start(update, context)
-        return ConversationHandler.END
-    elif choice == 'admin_home':
-        await admin_start(update, context)
-        return ADMIN_MENU
-
-# --- Backup Handler Logic ---
-async def backup_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    choice = query.data
-
-    if choice == 'get_backup_now':
-        if os.path.exists(DATA_FILE):
-             await query.message.reply_document(document=open(DATA_FILE, 'rb'), caption="💾 فایل دیتابیس (bot_data.json)")
-        else:
-             await query.edit_message_text("❌ فایلی وجود ندارد.")
-        return BACKUP_MENU
-    
-    elif choice == 'set_backup_auto':
-        await query.edit_message_text("⏱ لطفا فاصله زمانی بکاپ خودکار را **به ساعت** وارد کنید:\\n(برای غیرفعال کردن عدد 0 را بفرستید)\\n\\nمثال: 12 (یعنی هر ۱۲ ساعت)")
-        return SET_BACKUP_INTERVAL
-
-    elif choice == 'restore_backup':
-        await query.edit_message_text("📤 لطفا فایل **bot_data.json** خود را ارسال کنید تا جایگزین دیتابیس فعلی شود.\\n\\n⚠️ هشدار: تمام اطلاعات فعلی پاک خواهد شد.")
-        return RESTORE_BACKUP
-    
-    elif choice == 'admin_home':
-        await admin_start(update, context)
-        return ADMIN_MENU
-
-async def set_backup_interval_exec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if not text.isdigit():
-        await update.message.reply_text("❌ لطفا عدد وارد کنید.")
-        return SET_BACKUP_INTERVAL
-    
-    hours = int(text)
-    data = load_data()
-    data['backup_interval'] = hours
-    save_data(data)
-    
-    # Update Job Queue
-    current_jobs = context.job_queue.get_jobs_by_name('auto_backup')
-    for job in current_jobs: job.schedule_removal()
-    
-    if hours > 0:
-        context.job_queue.run_repeating(send_auto_backup, interval=hours*3600, first=10, name='auto_backup')
-        await update.message.reply_text(f"✅ بکاپ خودکار روی هر {hours} ساعت تنظیم شد.")
-    else:
-        await update.message.reply_text("✅ بکاپ خودکار غیرفعال شد.")
+    if data.startswith("variant_"):
+        parts = data.split("_")
+        model_name, idx = parts[1], int(parts[2])
+        found_variant = None
+        for b_data in CAR_DB.values():
+            for m in b_data["models"]:
+                if m["name"] == model_name and idx < len(m["variants"]): found_variant = m["variants"][idx]; break
         
-    return BACKUP_MENU
+        if found_variant:
+            floor = int(found_variant["marketPrice"] * 0.985)
+            text = (f"📊 **استعلام قیمت**\\n🚘 {found_variant['name']}\\n-------------------\\n📉 **کف قیمت بازار:**\\n💰 {floor:,} م ت\\n🏭 **کارخانه:**\\n🏦 {found_variant['factoryPrice']:,} م ت")
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"model_{model_name}")]]
+            await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        return
 
-async def restore_backup_exec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.document:
-        await update.message.reply_text("❌ لطفا فایل ارسال کنید.")
-        return RESTORE_BACKUP
+    if data == "menu_estimate":
+        set_state(user_id, STATE_ESTIMATE_BRAND)
+        keyboard = []
+        for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
+        keyboard.append([InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")])
+        await query.edit_message_text("برند را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("year_"):
+        year = int(data.replace("year_", ""))
+        update_data(user_id, "year", year)
+        set_state(user_id, STATE_ESTIMATE_MILEAGE)
+        await query.edit_message_text("کارکرد (کیلومتر) را وارد کنید (فقط عدد):")
+        return
+
+    if data.startswith("paint_"):
+        paint_idx = int(data.replace("paint_", ""))
+        condition = PAINT_CONDITIONS[paint_idx]
+        user_data = get_state(user_id)["data"]
+        brand, model, year, mileage = user_data.get("brand"), user_data.get("model"), user_data.get("year"), user_data.get("mileage")
         
-    f_name = update.message.document.file_name
-    if not f_name.endswith('.json'):
-        await update.message.reply_text("❌ فرمت فایل باید .json باشد.")
-        return RESTORE_BACKUP
+        zero_price = 800
+        for b in CAR_DB.values():
+            for m in b["models"]:
+                if m["name"] == model: zero_price = m["variants"][0]["marketPrice"]; break
         
-    new_file = await update.message.document.get_file()
-    await new_file.download_to_drive(DATA_FILE)
-    
-    # Reload data to ensure validity
-    try:
-        data = load_data()
-        await update.message.reply_text("✅ بکاپ با موفقیت بازگردانی شد! ربات با اطلاعات جدید کار می‌کند.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='admin_home')]]))
+        age = 1404 - year
+        age_drop = 0.05 if age == 1 else (0.05 + ((age - 1) * 0.035) if age > 1 else 0)
+        if age > 10: age_drop = 0.40
         
-        # Reschedule backup if needed
-        interval = data.get("backup_interval", 0)
-        current_jobs = context.job_queue.get_jobs_by_name('auto_backup')
-        for job in current_jobs: job.schedule_removal()
-        if interval > 0:
-            context.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=10, name='auto_backup')
+        diff = mileage - (age * 20000)
+        mileage_drop = (diff / 10000) * 0.01 if diff > 0 else (diff / 10000) * 0.005
+        mileage_drop = max(min(mileage_drop, 0.15), -0.05)
             
-    except:
-        await update.message.reply_text("❌ فایل خراب است یا ساختار معتبری ندارد.")
+        total_drop = age_drop + mileage_drop + condition["drop"]
+        final_price = round((zero_price * (1 - total_drop)) / 5) * 5
         
-    return ConversationHandler.END
+        result = (f"🎯 **کارشناسی قیمت**\\n🚙 **{brand} {model}**\\n-----------------\\n📅 سال: {year} | 🛣 کارکرد: {mileage:,}\\n🎨 بدنه: {condition['label']}\\n-----------------\\n💰 **قیمت تقریبی: {final_price:,} میلیون تومان**")
+        keyboard = [[InlineKeyboardButton("🏠 منوی اصلی", callback_data="main_menu")]]
+        await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        reset_state(user_id)
+        return
 
-# --- Admin Management Logic (Existing) ---
-async def manage_admins_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    choice = query.data
-    
-    if choice == 'add_admin':
-        await query.edit_message_text("🔢 لطفا **شناسه عددی (Numeric ID)** کاربر جدید را ارسال کنید:\\n\\n(کاربر می‌تواند با ارسال دستور /id شناسه خود را دریافت کند)")
-        return ADD_NEW_ADMIN
-    
-    elif choice == 'list_admins':
-        data = load_data()
-        admins = data.get("admins", [])
-        msg = f"👑 **Owner:** {OWNER_ID}\\n\\n👮 **Admins:**\\n"
-        if not admins:
-            msg += "هیچ ادمین دیگری تعریف نشده است."
-        else:
-            for a in admins:
-                msg += f"- {a}\\n"
-        
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data='admin_home')]]
-        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        return ADMIN_MENU
-        
-    elif choice == 'admin_home':
-        await admin_start(update, context)
-        return ADMIN_MENU
-
-async def add_new_admin_exec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     text = update.message.text
-    if not text.isdigit():
-        await update.message.reply_text("❌ خطا: شناسه باید عدد باشد.")
-        return ADD_NEW_ADMIN
+    state_info = get_state(user_id)
     
-    new_id = int(text)
-    if add_admin(new_id):
-        await update.message.reply_text(f"✅ کاربر {new_id} به لیست ادمین‌ها اضافه شد.", 
-                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='admin_home')]]))
-    else:
-        await update.message.reply_text("⚠️ این کاربر قبلا اضافه شده است.",
-                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='admin_home')]]))
-    return ADMIN_MENU
+    if text == "/id":
+        await update.message.reply_text(f"🆔 {user_id}")
+        return
 
-# --- Broadcast Logic (Existing) ---
-async def adm_broadcast_menu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    choice = query.data
-    
-    if choice == 'admin_home':
-        return await admin_start(update, context)
-
-    context.user_data['bcast_type'] = choice
-    if choice == 'bcast_schedule':
-        await query.edit_message_text("🕒 **زمان ارسال** را وارد کنید:\\nفرمت: YYYY/MM/DD HH:MM")
-        return BROADCAST_GET_TIME
-    
-    await query.edit_message_text("✍️ **متن پیام** خود را بنویسید:")
-    return BROADCAST_GET_CONTENT
-
-async def adm_broadcast_get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    time_str = update.message.text
-    context.user_data['bcast_time_str'] = time_str
-    await update.message.reply_text(f"✅ زمان ثبت شد: {time_str}\\n\\n✍️ حالا **متن پیام** را بنویسید:")
-    return BROADCAST_GET_CONTENT
-
-async def scheduled_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    message_text = job.data.get('text')
-    data = load_data()
-    users = data.get('users', {})
-    for uid in users.keys():
+    if state_info["state"] == STATE_ESTIMATE_MILEAGE:
         try:
-            await context.bot.send_message(chat_id=int(uid), text=f"🔔 {message_text}", parse_mode='Markdown')
-        except: pass
+            mileage = int(text.replace(",", ""))
+            update_data(user_id, "mileage", mileage)
+            set_state(user_id, STATE_ESTIMATE_PAINT)
+            keyboard = []
+            for i in range(0, len(PAINT_CONDITIONS), 2):
+                row = [InlineKeyboardButton(PAINT_CONDITIONS[i]["label"], callback_data=f"paint_{i}")]
+                if i + 1 < len(PAINT_CONDITIONS): row.append(InlineKeyboardButton(PAINT_CONDITIONS[i+1]["label"], callback_data=f"paint_{i+1}"))
+                keyboard.append(row)
+            await update.message.reply_text("وضعیت بدنه:", reply_markup=InlineKeyboardMarkup(keyboard))
+        except: await update.message.reply_text("⚠️ فقط عدد وارد کنید.")
+        return
 
-async def adm_broadcast_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg_text = update.message.text
-    bcast_type = context.user_data.get('bcast_type')
-    data = load_data()
-    users_dict = data.get('users', {})
-    targets = []
-
-    if bcast_type == 'bcast_all':
-        targets = list(users_dict.keys())
-    elif bcast_type == 'bcast_active':
-        now = datetime.now()
-        for uid, last_active_str in users_dict.items():
-            try:
-                last_active = datetime.fromisoformat(last_active_str)
-                if (now - last_active).days <= 30:
-                    targets.append(uid)
-            except: targets.append(uid)
-                
-    elif bcast_type == 'bcast_schedule':
-        context.job_queue.run_once(scheduled_broadcast_job, 60, data={'text': msg_text})
-        await update.message.reply_text(f"✅ پیام زمان‌بندی شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='main_menu')]]))
-        return ConversationHandler.END
-
-    count = 0
-    for uid in targets:
-        try:
-            await context.bot.send_message(chat_id=int(uid), text=f"📢 {msg_text}", parse_mode='Markdown')
-            count += 1
-        except: pass
-        
-    await update.message.reply_text(f"✅ ارسال شد به {count} نفر.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='main_menu')]]))
-    return ConversationHandler.END
-
-# --- Support System (Existing) ---
-async def start_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("📞 **تماس با پشتیبانی**\\n\\nلطفا پیام، انتقاد یا سوال خود را بنویسید.\\nما آن را بررسی خواهیم کرد.", 
-                                  reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='main_menu')]]))
-    return SUPPORT_GET_MSG
-
-async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_msg = update.message.text
-    user = update.effective_user
-    
-    admins = get_all_admins()
-    admin_text = f"📩 **پیام جدید پشتیبانی**\\n👤 کاربر: {user.first_name} (ID: {user.id})\\n\\n📝 متن:\\n{user_msg}"
-    
-    for admin_id in admins:
-        try:
-            await context.bot.send_message(chat_id=int(admin_id), text=admin_text)
-        except: pass
-        
-    await update.message.reply_text("✅ پیام شما دریافت شد. با تشکر!", 
-                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("خانه", callback_data='main_menu')]]))
-    return ConversationHandler.END
-
-# --- Standard Handlers (Existing) ---
-async def adm_handle_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.document: return UPLOAD_EXCEL
-    file = await update.message.document.get_file()
-    await file.download_to_drive(EXCEL_FILE)
-    try:
-        df = pd.read_excel(EXCEL_FILE)
-        new_db = {}
-        for _, row in df.iterrows():
-            brand = str(row['Brand']).strip()
-            model = str(row['Model']).strip()
-            variant = str(row['Variant']).strip()
-            m_price = int(row['MarketPrice'])
-            f_price = int(row['FactoryPrice'])
-            if brand not in new_db: new_db[brand] = {"name": brand, "models": []}
-            model_obj = next((m for m in new_db[brand]['models'] if m['name'] == model), None)
-            if not model_obj:
-                model_obj = {"name": model, "variants": []}
-                new_db[brand]['models'].append(model_obj)
-            model_obj['variants'].append({"name": variant, "marketPrice": m_price, "factoryPrice": f_price})
-        data = load_data()
-        data['cars'] = new_db
-        data['last_update'] = jdatetime.datetime.now().strftime("%Y/%m/%d %H:%M")
-        save_data(data)
-        await update.message.reply_text("✅ دیتابیس آپدیت شد!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data='main_menu')]]))
-    except: await update.message.reply_text("خطا در فایل.")
-    return ConversationHandler.END
-    
-async def add_car_brand(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['new_brand'] = update.message.text
-    await update.message.reply_text("مدل:")
-    return ADD_MODEL
-async def add_car_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['new_model'] = update.message.text
-    await update.message.reply_text("تیپ:")
-    return ADD_VARIANT
-async def add_car_variant(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['new_variant'] = update.message.text
-    await update.message.reply_text("قیمت:")
-    return ADD_PRICE
-async def add_car_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ ثبت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازشت", callback_data='main_menu')]]))
-    return ConversationHandler.END
-
-# --- Estimator Handlers (Existing) ---
-async def start_estimate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    cars_db = get_db()
-    keyboard = [[InlineKeyboardButton(b, callback_data=f'est_brand_{b}')] for b in cars_db.keys()]
-    keyboard.append([InlineKeyboardButton("🔙 انصراف", callback_data='main_menu')])
-    await query.edit_message_text("برند:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return EST_BRAND
-
-async def est_select_brand(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    brand = query.data.replace('est_brand_', '')
-    context.user_data['est_brand'] = brand
-    cars_db = get_db()
-    models = [m['name'] for m in cars_db[brand]['models']]
-    keyboard = [[InlineKeyboardButton(m, callback_data=f'est_model_{m}')] for m in models]
-    await query.edit_message_text(f"مدل {brand}:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return EST_MODEL
-async def est_select_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data['est_model'] = query.data.replace('est_model_', '')
-    keyboard = []
-    years = list(range(1390, 1405)); years.reverse()
-    for i in range(0, len(years), 3):
-        row = [InlineKeyboardButton(str(y), callback_data=f'est_year_{y}') for y in years[i:i+3]]
-        keyboard.append(row)
-    await query.edit_message_text("سال:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return EST_YEAR
-async def est_select_year(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data['est_year'] = int(query.data.replace('est_year_', ''))
-    await query.edit_message_text("کارکرد:")
-    return EST_MILEAGE
-async def est_get_mileage(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['est_mileage'] = int(update.message.text)
-    keyboard = []
-    for i, p in enumerate(PAINT_CONDITIONS): keyboard.append([InlineKeyboardButton(p['label'], callback_data=f'est_paint_{i}')])
-    await update.message.reply_text("وضعیت بدنه:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return EST_PAINT
-async def est_calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    data = context.user_data
-    brand = data.get('est_brand')
-    model = data.get('est_model')
-    year = data.get('est_year')
-    mileage = data.get('est_mileage')
-    paint_idx = int(query.data.replace('est_paint_', ''))
-    paint = PAINT_CONDITIONS[paint_idx]
-    
-    cars_db = get_db()
-    base_price = 0
-    try:
-        models = cars_db[brand]['models']
-        for m in models:
-            if m['name'] == model:
-                base_price = m['variants'][0]['marketPrice']
-                break
-    except: base_price = 800
-    
-    current_year = 1404
-    age = current_year - year
-    age_drop = 0.05 if age == 1 else (0.05 + ((age-1)*0.035)) if age > 1 else 0
-    if age_drop > 0.40: age_drop = 0.40
-    
-    std_mileage = age * 20000
-    diff = mileage - std_mileage
-    mileage_drop = (diff/10000)*0.01 if diff > 0 else (diff/10000)*0.005
-    if mileage_drop > 0.15: mileage_drop = 0.15
-    if mileage_drop < -0.05: mileage_drop = -0.05
-    
-    paint_drop = paint['drop']
-    
-    total_drop = age_drop + mileage_drop + paint_drop
-    final_price = base_price * (1 - total_drop)
-    final_price = round(final_price / 5) * 5
-    
-    msg = f"🎯 **نتیجه تخمین قیمت**\\n\\n"
-    msg += f"🚙 **{brand} {model}**\\n"
-    msg += f"📅 سال: {year} | 🛣 کارکرد: {mileage:,}\\n"
-    msg += f"🎨 بدنه: {paint['label']}\\n"
-    msg += f"-------------------------\\n"
-    msg += f"💰 **قیمت تقریبی: {final_price:,} میلیون تومان**"
-    
-    keyboard = [
-        [InlineKeyboardButton("🧮 محاسبه دقیق (آنلاین)", web_app=WebAppInfo(url="https://www.hamrah-mechanic.com/carprice/"))],
-        [InlineKeyboardButton("🏠 منوی اصلی", callback_data='main_menu')]
-    ]
-    
-    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    return ConversationHandler.END
-
-# --- Startup Logic (Job Queue) ---
+# --- Startup Logic ---
 async def post_init(application):
-    # Check for auto-backup setting on startup
+    # Auto-Backup Setup
     data = load_data()
     interval = data.get("backup_interval", 0)
     if interval > 0:
-        application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=10, name='auto_backup')
+        application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=60, name='auto_backup')
     
-    # SET COMMANDS (MENU)
-    await application.bot.set_my_commands([
-        BotCommand("start", "🏠 منوی اصلی | بازنشانی"),
-        BotCommand("id", "🆔 دریافت شناسه عددی"),
-        BotCommand("admin", "👑 پنل مدیریت")
-    ])
-
-# --- Main ---
-def main():
-    builder = ApplicationBuilder().token(TOKEN).post_init(post_init)
-    
-    proxy_url = os.environ.get("PROXY_URL")
-    if proxy_url and proxy_url.strip():
-        print(f"Using Proxy: {proxy_url}")
-        builder.proxy_url(proxy_url)
-        builder.get_updates_request(read_timeout=30, connect_timeout=30)
-    
-    application = builder.build()
-    
-    admin_conv = ConversationHandler(
-        entry_points=[CommandHandler('admin', admin_start), CallbackQueryHandler(admin_start, pattern='^admin_home$')],
-        states={
-            ADMIN_MENU: [CallbackQueryHandler(adm_menu_choice)],
-            MANAGE_ADMINS: [CallbackQueryHandler(manage_admins_choice)],
-            ADD_NEW_ADMIN: [MessageHandler(filters.TEXT, add_new_admin_exec)],
-            UPLOAD_EXCEL: [MessageHandler(filters.Document.FileExtension("xlsx"), adm_handle_excel)],
-            ADD_BRAND: [MessageHandler(filters.TEXT, add_car_brand)],
-            ADD_MODEL: [MessageHandler(filters.TEXT, add_car_model)],
-            ADD_VARIANT: [MessageHandler(filters.TEXT, add_car_variant)],
-            ADD_PRICE: [MessageHandler(filters.TEXT, add_car_price)],
-            SET_SPONSOR_NAME: [MessageHandler(filters.TEXT, lambda u,c: ConversationHandler.END)],
-            BROADCAST_MENU: [CallbackQueryHandler(adm_broadcast_menu_choice)],
-            BROADCAST_GET_TIME: [MessageHandler(filters.TEXT, adm_broadcast_get_time)],
-            BROADCAST_GET_CONTENT: [MessageHandler(filters.TEXT, adm_broadcast_execute)],
-            
-            # Backup States
-            BACKUP_MENU: [CallbackQueryHandler(backup_menu_choice)],
-            SET_BACKUP_INTERVAL: [MessageHandler(filters.TEXT, set_backup_interval_exec)],
-            RESTORE_BACKUP: [MessageHandler(filters.Document.FileExtension("json"), restore_backup_exec)],
-        },
-        fallbacks=[CommandHandler('start', start), CallbackQueryHandler(start, pattern='^main_menu$')]
-    )
-    
-    support_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_support, pattern='^menu_support$')],
-        states={
-            SUPPORT_GET_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_support_message)]
-        },
-        fallbacks=[CommandHandler('start', start), CallbackQueryHandler(start, pattern='^main_menu$')]
-    )
-
-    est_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_estimate, pattern='^menu_estimate$')],
-        states={
-            EST_BRAND: [CallbackQueryHandler(est_select_brand, pattern='^est_brand_')],
-            EST_MODEL: [CallbackQueryHandler(est_select_model, pattern='^est_model_')],
-            EST_YEAR: [CallbackQueryHandler(est_select_year, pattern='^est_year_')],
-            EST_MILEAGE: [MessageHandler(filters.TEXT, est_get_mileage)],
-            EST_PAINT: [CallbackQueryHandler(est_calculate, pattern='^est_paint_')],
-        },
-        fallbacks=[CommandHandler('start', start), CallbackQueryHandler(start, pattern='^main_menu$')]
-    )
-
-    application.add_handler(admin_conv)
-    application.add_handler(support_conv)
-    application.add_handler(est_conv)
-    
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('id', get_my_id))
-    
-    application.add_handler(CallbackQueryHandler(show_brands, pattern='^menu_prices$'))
-    application.add_handler(CallbackQueryHandler(start, pattern='^main_menu$'))
-    application.add_handler(CallbackQueryHandler(show_models, pattern='^brand_'))
-    application.add_handler(CallbackQueryHandler(show_models, pattern='^brand_'))
-    application.add_handler(CallbackQueryHandler(show_variants, pattern='^model_'))
-    application.add_handler(CallbackQueryHandler(show_final_price, pattern='^variant_'))
-    
-    print("Bot started...")
-    application.run_polling()
+    # Force Menu Refresh
+    try:
+        await application.bot.delete_my_commands()
+        await application.bot.set_my_commands([
+            BotCommand("start", "🏠 منوی اصلی / شروع مجدد"),
+            BotCommand("id", "🆔 دریافت شناسه عددی"),
+            BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)")
+        ])
+        logger.info("Bot commands updated successfully.")
+    except Exception as e:
+        logger.error(f"Failed to set commands: {e}")
 
 if __name__ == '__main__':
-    main()
+    if TOKEN == 'REPLACE_ME_TOKEN': print("⚠️ Configure token in bot.py")
+    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    print("Bot is running...")
+    app.run_polling()

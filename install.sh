@@ -215,6 +215,60 @@ function send_backup_to_telegram() {
     pause
 }
 
+function configure_auto_backup() {
+    while true; do
+        clear
+        echo -e "${BLUE}========================================${NC}"
+        echo -e "${YELLOW}      ⏱ Auto-Backup Configuration      ${NC}"
+        echo -e "${BLUE}========================================${NC}"
+        echo -e "1) Set ${GREEN}Hourly${NC} (Every 1 Hour)"
+        echo -e "2) Set ${GREEN}Daily${NC} (Every 24 Hours)"
+        echo -e "3) ${RED}Disable${NC} Auto-Backup"
+        echo -e "0) Back"
+        echo -e "${BLUE}========================================${NC}"
+        read -p "Select interval: " interval_choice
+        
+        DATA_FILE="$INSTALL_DIR/bot_data.json"
+        
+        # Ensure bot_data.json exists
+        if [ ! -f "$DATA_FILE" ]; then
+            echo "{}" > "$DATA_FILE"
+        fi
+
+        case $interval_choice in
+            1)
+                # Use python to edit json safely
+                python3 -c "import json; d=json.load(open('$DATA_FILE')); d['backup_interval']=1; json.dump(d, open('$DATA_FILE','w'))"
+                echo -e "${GREEN}✅ Set to Hourly. Restarting bot...${NC}"
+                sudo systemctl restart $SERVICE_NAME
+                pause
+                return
+                ;;
+            2)
+                python3 -c "import json; d=json.load(open('$DATA_FILE')); d['backup_interval']=24; json.dump(d, open('$DATA_FILE','w'))"
+                echo -e "${GREEN}✅ Set to Daily. Restarting bot...${NC}"
+                sudo systemctl restart $SERVICE_NAME
+                pause
+                return
+                ;;
+            3)
+                python3 -c "import json; d=json.load(open('$DATA_FILE')); d['backup_interval']=0; json.dump(d, open('$DATA_FILE','w'))"
+                echo -e "${YELLOW}🚫 Auto-Backup Disabled. Restarting bot...${NC}"
+                sudo systemctl restart $SERVICE_NAME
+                pause
+                return
+                ;;
+            0)
+                return
+                ;;
+            *)
+                echo "Invalid option."
+                pause
+                ;;
+        esac
+    done
+}
+
 function do_backup() {
     while true; do
         clear
@@ -223,29 +277,33 @@ function do_backup() {
         echo -e "${BLUE}========================================${NC}"
         echo -e "1) ${GREEN}Local Backup${NC} (Save to $HOME/carbot_backups)"
         echo -e "2) ${YELLOW}Send to Telegram${NC} (Send file to Admin)"
+        echo -e "3) ${BLUE}Auto-Backup Settings${NC} (Hourly/Daily)"
         echo -e "0) Back to Main Menu"
         echo -e "${BLUE}========================================${NC}"
         read -p "Select an option: " subchoice
 
         case $subchoice in
             1)
-                echo -e "${BLUE}💾 Backing up locally...${NC}"
-                if [ ! -f "$INSTALL_DIR/bot_data.json" ]; then
-                    echo -e "${RED}❌ No database found (bot_data.json is missing).${NC}"
-                    pause
-                else
-                    BACKUP_DIR="$HOME/carbot_backups"
-                    mkdir -p "$BACKUP_DIR"
-                    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-                    DEST="$BACKUP_DIR/backup_$TIMESTAMP.json"
+                BACKUP_DIR="$HOME/carbot_backups"
+                mkdir -p "$BACKUP_DIR"
+                TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+                DEST="$BACKUP_DIR/backup_$TIMESTAMP.json"
+                
+                # Check if data file exists
+                if [ -f "$INSTALL_DIR/bot_data.json" ]; then
                     cp "$INSTALL_DIR/bot_data.json" "$DEST"
                     echo -e "${GREEN}✅ Backup created: $DEST${NC}"
                     echo -e "(You can download this via SFTP)"
-                    pause
+                else
+                     echo -e "${RED}❌ No database found (bot_data.json is missing).${NC}"
                 fi
+                pause
                 ;;
             2)
                 send_backup_to_telegram
+                ;;
+            3)
+                configure_auto_backup
                 ;;
             0)
                 return
