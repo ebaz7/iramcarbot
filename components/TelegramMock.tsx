@@ -26,6 +26,7 @@ const TelegramMock: React.FC = () => {
   // Configs
   const [channelUrl, setChannelUrl] = useState("https://t.me/CarPrice_Channel");
   const [sponsorConfig, setSponsorConfig] = useState<{name?: string, url?: string}>({});
+  const [supportConfig, setSupportConfig] = useState<{mode: "text" | "link", value: string}>({mode: "text", value: "لطفا پیام خود را بنویسید..."});
   const [lastUpdate, setLastUpdate] = useState<string>(new Date().toLocaleString('fa-IR'));
   const [backupInterval, setBackupInterval] = useState<number>(0);
   
@@ -48,7 +49,7 @@ const TelegramMock: React.FC = () => {
     if (messages.length === 0) {
       addBotMessage(getWelcomeMessage(), getMainMenuButtons());
     }
-  }, [isAdminMode, menuConfig]); // Re-render menu if config changes
+  }, [isAdminMode, menuConfig, supportConfig]); // Re-render menu if config changes
 
   const getWelcomeMessage = () => {
       const today = new Date().toLocaleDateString('fa-IR');
@@ -74,7 +75,15 @@ const TelegramMock: React.FC = () => {
       // Row 3: Utilities
       const row3 = [];
       if (c["search"].active) row3.push({ text: c["search"].label, callbackData: "menu_search" });
-      if (c["support"].active) row3.push({ text: c["support"].label, callbackData: "menu_support" });
+      
+      if (c["support"].active) {
+          // Check support config
+          if (supportConfig.mode === "link") {
+              row3.push({ text: c["support"].label, url: supportConfig.value });
+          } else {
+              row3.push({ text: c["support"].label, callbackData: "menu_support" });
+          }
+      }
       if (row3.length > 0) buttons.push(row3);
 
       // MAGIC: Automatically add Admin Button if user is Admin
@@ -158,8 +167,8 @@ const TelegramMock: React.FC = () => {
 
     // --- Support Flow ---
     if (callbackData === 'menu_support') {
-        setBotState(BotState.SUPPORT_MESSAGE);
-        addBotMessage("📞 **تماس با پشتیبانی**\n\nلطفا پیام، انتقاد یا پیشنهاد خود را بنویسید. ما در سریع‌ترین زمان ممکن پاسخ خواهیم داد.", [[{ text: "🔙 بازگشت", callbackData: "main_menu" }]]);
+        // Now dynamic based on supportConfig
+        addBotMessage(`📞 **اطلاعات پشتیبانی:**\n\n${supportConfig.value}`, [[{ text: "🔙 بازگشت", callbackData: "main_menu" }]]);
         return;
     }
 
@@ -167,6 +176,7 @@ const TelegramMock: React.FC = () => {
     if (callbackData === 'admin_home') {
         addBotMessage("🛠 **پنل مدیریت پیشرفته**\n\nگزینه مورد نظر را انتخاب کنید:", [
             [{ text: "⚙️ مدیریت دکمه‌ها و منو", callbackData: "admin_menus" }],
+            [{ text: "📞 تنظیم پشتیبانی", callbackData: "admin_set_support" }],
             [{ text: "💾 مدیریت بکاپ و دیتابیس", callbackData: "admin_backup_menu" }],
             [{ text: "👥 مدیریت ادمین‌ها", callbackData: "admin_manage_admins" }],
             [{ text: "📂 آپدیت قیمت (اکسل)", callbackData: "admin_update_excel" }],
@@ -175,6 +185,13 @@ const TelegramMock: React.FC = () => {
             [{ text: "📣 ارسال پیام همگانی", callbackData: "admin_broadcast" }],
             [{ text: "🔙 خروج از مدیریت", callbackData: "main_menu" }]
         ]);
+        return;
+    }
+
+    // --- ADMIN SET SUPPORT ---
+    if (callbackData === 'admin_set_support') {
+        setTempAdminData({ mode: 'SET_SUPPORT' });
+        addBotMessage("📞 **تنظیم دکمه پشتیبانی**\n\nلطفا یکی از موارد زیر را ارسال کنید:\n1. یک **لینک** (مثلا https://t.me/admin) -> دکمه به صورت لینک مستقیم باز می‌شود.\n2. یک **متن یا شماره** -> وقتی کاربر کلیک کند، این متن به او نمایش داده می‌شود.");
         return;
     }
 
@@ -553,6 +570,7 @@ const TelegramMock: React.FC = () => {
         if (!isAdminMode) {
              addBotMessage("🛠 **پنل مدیریت پیشرفته**\n\nگزینه مورد نظر را انتخاب کنید:", [
                 [{ text: "⚙️ مدیریت دکمه‌ها و منو", callbackData: "admin_menus" }],
+                [{ text: "📞 تنظیم پشتیبانی", callbackData: "admin_set_support" }],
                 [{ text: "💾 مدیریت بکاپ و دیتابیس", callbackData: "admin_backup_menu" }],
                 [{ text: "👥 مدیریت ادمین‌ها", callbackData: "admin_manage_admins" }],
                 [{ text: "📂 آپدیت قیمت (اکسل)", callbackData: "admin_update_excel" }],
@@ -583,6 +601,22 @@ const TelegramMock: React.FC = () => {
     }
 
     if (isAdminMode && tempAdminData.mode) {
+        // SUPPORT SETTING
+        if (tempAdminData.mode === 'SET_SUPPORT') {
+            const mode = txt.startsWith("http") ? "link" : "text";
+            // Auto format username
+            let val = txt;
+            if (txt.startsWith("@")) {
+                 val = `https://t.me/${txt.replace("@", "")}`;
+            }
+
+            setSupportConfig({ mode: mode === "link" || val.startsWith("http") ? "link" : "text", value: val });
+            setTempAdminData({});
+            const typeMsg = (mode === "link" || val.startsWith("http")) ? "لینک مستقیم" : "متن";
+            addBotMessage(`✅ پشتیبانی تنظیم شد به صورت **${typeMsg}**.\nمقدار: ${val}`, [[{ text: "🔙 منوی مدیریت", callbackData: "admin_home" }]]);
+            return;
+        }
+
         // MENU EDITING
         if (tempAdminData.mode === 'EDIT_MENU_LABEL') {
             const key = tempAdminData.key;

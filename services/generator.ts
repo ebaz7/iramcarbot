@@ -506,6 +506,7 @@ STATE_ADMIN_SPONSOR_LINK = "ADM_SPONSOR_LINK"
 STATE_ADMIN_BROADCAST = "ADM_BCAST"
 STATE_ADMIN_EDIT_MENU_LABEL = "ADM_EDIT_LABEL"
 STATE_ADMIN_EDIT_MENU_URL = "ADM_EDIT_URL"
+STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 
 # --- Data Management ---
 def load_data():
@@ -513,11 +514,10 @@ def load_data():
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 d = json.load(f)
-                # Ensure menu config exists
                 if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
                 return d
         except: pass
-    return {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG}
+    return {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG, "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."}}
 
 def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
@@ -550,6 +550,7 @@ def reset_state(user_id):
 def get_main_menu(user_id):
     d = load_data()
     c = d.get("menu_config", DEFAULT_CONFIG)
+    sup_conf = d.get("support_config", {"mode": "text", "value": "..."})
     
     keyboard = []
     
@@ -565,10 +566,17 @@ def get_main_menu(user_id):
     if c["estimate"]["active"]: row2.append(InlineKeyboardButton(c["estimate"]["label"], callback_data="menu_estimate"))
     if row2: keyboard.append(row2)
 
-    # Row 3: Utilities
+    # Row 3: Utilities + Support
     row3 = []
     if c["search"]["active"]: row3.append(InlineKeyboardButton(c["search"]["label"], callback_data="menu_search"))
-    if c["support"]["active"]: row3.append(InlineKeyboardButton(c["support"]["label"], callback_data="menu_support"))
+    
+    if c["support"]["active"]:
+        # Check if support is configured as a LINK or TEXT
+        if sup_conf["mode"] == "link":
+             row3.append(InlineKeyboardButton(c["support"]["label"], url=sup_conf["value"]))
+        else:
+             row3.append(InlineKeyboardButton(c["support"]["label"], callback_data="menu_support"))
+    
     if row3: keyboard.append(row3)
 
     if is_admin(user_id): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
@@ -618,13 +626,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "admin_home" and is_admin(user_id):
         keyboard = [
             [InlineKeyboardButton("⚙️ مدیریت دکمه‌ها و منو", callback_data="admin_menus")],
-            [InlineKeyboardButton("💾 بکاپ و دیتابیس", callback_data="admin_backup_menu")],
+            [InlineKeyboardButton("📞 تنظیم پشتیبانی", callback_data="admin_set_support")],
             [InlineKeyboardButton("👥 مدیریت ادمین‌ها", callback_data="admin_manage_admins")],
+            [InlineKeyboardButton("💾 بکاپ و دیتابیس", callback_data="admin_backup_menu")],
             [InlineKeyboardButton("⭐ تنظیم اسپانسر", callback_data="admin_set_sponsor")],
             [InlineKeyboardButton("📣 ارسال پیام همگانی", callback_data="admin_broadcast")],
             [InlineKeyboardButton("🔙 خروج", callback_data="main_menu")]
         ]
         await query.edit_message_text("🛠 **پنل مدیریت پیشرفته**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
+    # --- ADMIN: SET SUPPORT ---
+    if data == "admin_set_support":
+        set_state(user_id, STATE_ADMIN_SET_SUPPORT)
+        await query.message.reply_text(
+            "📞 **تنظیم دکمه پشتیبانی**\\n\\n"
+            "لطفا یکی از موارد زیر را ارسال کنید:\\n"
+            "1. یک **لینک** (مثلا https://t.me/admin) -> دکمه به صورت لینک مستقیم باز می‌شود.\\n"
+            "2. یک **متن یا شماره** -> وقتی کاربر کلیک کند، این متن به او نمایش داده می‌شود.",
+            parse_mode='Markdown'
+        )
         return
 
     # --- ADMIN: MENU MANAGEMENT ---
@@ -665,10 +686,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
         d["menu_config"][key]["active"] = not d["menu_config"][key]["active"]
         save_data(d)
-        # Go back to edit menu
         new_status = "✅ فعال" if d["menu_config"][key]["active"] else "❌ غیرفعال"
         await query.answer(f"دکمه {new_status} شد", show_alert=True)
-        # Manually triggering the "edit_menu_" view again to refresh:
+        # Refresh Logic
         query.data = f"edit_menu_{key}" 
         await handle_callback(update, context) 
         return
@@ -744,6 +764,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         d['backup_interval'] = new_interval
         save_data(d)
         await query.edit_message_text(f"✅ تنظیم شد: {new_interval} ساعت", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="admin_backup_menu")]]))
+        return
+
+    # --- USER: SUPPORT HANDLER ---
+    if data == "menu_support":
+        d = load_data()
+        sup_conf = d.get("support_config", {"mode": "text", "value": "..."})
+        text_val = sup_conf["value"]
+        await query.message.reply_text(f"📞 **اطلاعات پشتیبانی:**\\n\\n{text_val}", parse_mode='Markdown')
         return
 
     # --- CAR ESTIMATION FLOW ---
@@ -867,6 +895,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if text == "/id":
         await update.message.reply_text(f"🆔 {user_id}")
+        return
+
+    # --- ADMIN: SET SUPPORT ---
+    if state_info["state"] == STATE_ADMIN_SET_SUPPORT:
+        d = load_data()
+        mode = "link" if text.startswith("http") else "text"
+        
+        # Auto convert @username to https://t.me/username
+        if text.startswith("@"):
+            text = f"https://t.me/{text.replace('@', '')}"
+            mode = "link"
+
+        d["support_config"] = {"mode": mode, "value": text}
+        save_data(d)
+        
+        type_msg = "لینک" if mode == "link" else "متن"
+        await update.message.reply_text(f"✅ پشتیبانی تنظیم شد به صورت **{type_msg}**.\\nمقدار: {text}", parse_mode='Markdown')
+        reset_state(user_id)
         return
 
     # --- ADMIN: EDIT MENU INPUTS ---
