@@ -330,22 +330,46 @@ function do_install() {
 
 function do_update() {
     echo -e "\${BLUE}🔄 Updating Bot...\${NC}"
+    
     if [ ! -d "\$INSTALL_DIR" ]; then
-        echo -e "\${RED}Not installed.\${NC}"
-        pause; return
+        echo -e "\${RED}Bot is not installed yet. Please Install first.\${NC}"
+        pause
+        return
     fi
     
     cd "\$INSTALL_DIR"
+    
+    echo "1. Saving current configuration..."
+    # Extract Token (handle spacing variations)
+    OLD_TOKEN=\$(grep "TOKEN =" bot.py | cut -d "'" -f 2)
+    # Extract ID
+    OLD_ID=\$(grep "OWNER_ID =" bot.py | sed 's/OWNER_ID =//' | sed 's/ //g' | cut -d '#' -f 1)
+    
+    echo "2. Forcing Git Pull (Resetting changes)..."
+    # IMPORTANT: Reset git to allow pull, then re-apply keys
+    git reset --hard
     git pull
     
+    if [ -z "\$OLD_TOKEN" ] || [ -z "\$OLD_ID" ]; then
+         echo -e "\${YELLOW}⚠️  Could not backup credentials. You might need to re-enter them.\${NC}"
+    else 
+         echo "3. Restoring configuration..."
+         sed -i "s/REPLACE_ME_TOKEN/\$OLD_TOKEN/g" bot.py
+         sed -i "s/OWNER_ID = 0/OWNER_ID = \$OLD_ID/g" bot.py
+    fi
+
+    echo "4. Updating Menu Script..."
     if [ -f "install.sh" ]; then
         cp "install.sh" "manager.sh"
         chmod +x "manager.sh"
-        echo -e "\${GREEN}✅ Menu script updated.\${NC}"
+        echo -e "\${GREEN}✅ Menu script updated successfully.\${NC}"
     fi
     
+    echo "5. Restarting Service..."
+    check_root
     sudo systemctl restart \$SERVICE_NAME
-    echo -e "\${GREEN}✅ Updated & Restarted.\${NC}"
+    
+    echo -e "\${GREEN}✅ Update Complete.\${NC}"
     pause
 }
 
@@ -517,6 +541,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     reset_state(user_id)
     await update.message.reply_text(f"👋 سلام! منوی اصلی:", reply_markup=get_main_menu(user_id))
+
+async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Force updates the menu commands manually"""
+    try:
+        await context.bot.delete_my_commands()
+        await context.bot.set_my_commands([
+            BotCommand("start", "🏠 منوی اصلی"),
+            BotCommand("id", "🆔 دریافت شناسه عددی"),
+            BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)")
+        ])
+        await context.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        await update.message.reply_text("✅ دکمه منوی آبی و لیست دستورات با موفقیت آپدیت شد.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطا: {e}")
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -744,6 +782,7 @@ if __name__ == '__main__':
     if TOKEN == 'REPLACE_ME_TOKEN': print("⚠️ Configure token in bot.py")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("fixmenu", fix_menu))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("Bot is running...")

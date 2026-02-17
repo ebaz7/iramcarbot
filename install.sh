@@ -376,27 +376,37 @@ function do_update() {
     
     cd "$INSTALL_DIR"
     
-    echo "1. Pulling from Git..."
+    echo "1. Saving current configuration..."
+    # Extract Token (handle spacing variations)
+    OLD_TOKEN=$(grep "TOKEN =" bot.py | cut -d "'" -f 2)
+    # Extract ID
+    OLD_ID=$(grep "OWNER_ID =" bot.py | sed 's/OWNER_ID =//' | sed 's/ //g' | cut -d '#' -f 1)
+    
+    echo "2. Forcing Git Pull (Resetting changes)..."
+    # IMPORTANT: Reset git to allow pull, then re-apply keys
+    git reset --hard
     git pull
     
-    echo "2. Updating Menu Script..."
-    # SELF-UPDATE LOGIC:
-    # If the repo contains 'install.sh', we overwrite the current 'manager.sh'
-    # so the new menu options (Backup, Restore, Uninstall) appear immediately.
+    if [ -z "$OLD_TOKEN" ] || [ -z "$OLD_ID" ]; then
+         echo -e "${YELLOW}⚠️  Could not backup credentials. You might need to re-enter them.${NC}"
+    else 
+         echo "3. Restoring configuration..."
+         sed -i "s/REPLACE_ME_TOKEN/$OLD_TOKEN/g" bot.py
+         sed -i "s/OWNER_ID = 0/OWNER_ID = $OLD_ID/g" bot.py
+    fi
+
+    echo "4. Updating Menu Script..."
     if [ -f "install.sh" ]; then
         cp "install.sh" "manager.sh"
         chmod +x "manager.sh"
         echo -e "${GREEN}✅ Menu script updated successfully.${NC}"
-    else
-        echo -e "${YELLOW}⚠️  install.sh not found in repo. Menu options might not update.${NC}"
     fi
     
-    echo "3. Restarting Service..."
+    echo "5. Restarting Service..."
     check_root
     sudo systemctl restart $SERVICE_NAME
     
     echo -e "${GREEN}✅ Update Complete.${NC}"
-    echo -e "${YELLOW}ℹ️  NOTE: If you don't see new options, Exit (0) and run 'carbot' again.${NC}"
     pause
 }
 
@@ -454,7 +464,7 @@ while true; do
     echo -e "${GREEN}      🚗 Iran Car Bot Manager 🚗      ${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo -e "1) ${GREEN}Install / Reinstall${NC} (Fixes errors)"
-    echo -e "2) ${YELLOW}Update Bot${NC} (Git Pull & Restart)"
+    echo -e "2) ${YELLOW}Update Bot${NC} (Force Git Pull & Restart)"
     echo -e "3) View Logs"
     echo -e "4) Check Status"
     echo -e "5) Restart Bot"

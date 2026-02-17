@@ -92,6 +92,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reset_state(user_id)
     await update.message.reply_text(f"👋 سلام! منوی اصلی:", reply_markup=get_main_menu(user_id))
 
+async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Force updates the menu commands manually"""
+    try:
+        await context.bot.delete_my_commands()
+        await context.bot.set_my_commands([
+            BotCommand("start", "🏠 منوی اصلی"),
+            BotCommand("id", "🆔 دریافت شناسه عددی"),
+            BotCommand("admin", "👑 پنل مدیریت (مخصوص ادمین)")
+        ])
+        await context.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        await update.message.reply_text("✅ دکمه منوی آبی و لیست دستورات با موفقیت آپدیت شد.\nاگر هنوز نمی‌بینید، تلگرام را ببندید و باز کنید.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطا: {e}")
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -318,6 +332,7 @@ if __name__ == '__main__':
     if TOKEN == 'REPLACE_ME_TOKEN': print("⚠️ Configure token in bot.py")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("fixmenu", fix_menu))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("Bot is running...")
