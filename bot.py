@@ -1,7 +1,9 @@
+
 import logging
 import json
 import os
 import datetime
+import shutil
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
@@ -19,6 +21,7 @@ DEFAULT_CONFIG = {
     "mobile_webapp": {"label": "📱 قیمت موبایل (سایت)", "url": "https://www.mobile.ir/phones/prices.aspx", "active": True, "type": "webapp"},
     "mobile_list": {"label": "📲 لیست موبایل (ربات)", "active": True, "type": "internal"},
     "search": {"label": "🔍 جستجو", "active": True, "type": "internal"},
+    "channel": {"label": "📢 کانال ما", "url": "https://t.me/CarPrice_Channel", "active": True, "type": "link"},
     "support": {"label": "📞 پشتیبانی", "active": True, "type": "dynamic"}
 }
 
@@ -61,21 +64,49 @@ STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 
 # --- Data Management ---
 def load_data():
+    default_data = {
+        "backup_interval": 0, 
+        "users": [], 
+        "admins": [], 
+        "sponsor": {}, 
+        "menu_config": DEFAULT_CONFIG, 
+        "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."},
+        "panel_user": "",
+        "panel_pass": ""
+    }
+    
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 d = json.load(f)
                 if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
-                # Merge new defaults if missing
                 for k, v in DEFAULT_CONFIG.items():
                     if k not in d["menu_config"]: d["menu_config"][k] = v
                 return d
-        except: pass
-    return {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG, "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."}}
+        except json.JSONDecodeError:
+            # Handle corrupted file
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            corrupt_filename = f"{DATA_FILE}.corrupt.{timestamp}"
+            try:
+                shutil.copy(DATA_FILE, corrupt_filename)
+                logger.error(f"❌ Data file corrupted! Renamed to {corrupt_filename} and creating new DB.")
+            except: pass
+            return default_data
+        except Exception as e:
+            logger.error(f"❌ Error loading data: {e}")
+            return default_data
+            
+    return default_data
 
 def save_data(data):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    try:
+        # Write to temp file first to prevent corruption during write
+        temp_file = f"{DATA_FILE}.tmp"
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        shutil.move(temp_file, DATA_FILE)
+    except Exception as e:
+        logger.error(f"❌ Error saving data: {e}")
 
 def register_user(user_id):
     d = load_data()
@@ -108,7 +139,7 @@ def get_main_menu(user_id):
     
     keyboard = []
     
-    # Row 1: Web Apps (Cars)
+    # Row 1: Web Apps
     row1 = []
     if c["calc"]["active"]: row1.append(InlineKeyboardButton(c["calc"]["label"], web_app=WebAppInfo(url=c["calc"]["url"])))
     if c["market"]["active"]: row1.append(InlineKeyboardButton(c["market"]["label"], web_app=WebAppInfo(url=c["market"]["url"])))
@@ -120,7 +151,7 @@ def get_main_menu(user_id):
     if c["estimate"]["active"]: row2.append(InlineKeyboardButton(c["estimate"]["label"], callback_data="menu_estimate"))
     if row2: keyboard.append(row2)
 
-    # Row 3: Mobile Section
+    # Row 3: Mobile
     row3 = []
     if c.get("mobile_webapp", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_webapp"]["label"], web_app=WebAppInfo(url=c["mobile_webapp"]["url"])))
     if c.get("mobile_list", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_list"]["label"], callback_data="menu_mobile_list"))
@@ -140,12 +171,18 @@ def get_main_menu(user_id):
 
     if is_admin(user_id): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
     
-    # Sponsor Button
+    # Footer: Channel & Sponsor
+    footer = []
+    # Channel Config Check
+    if c.get("channel", {}).get("active"):
+        footer.append(InlineKeyboardButton(c["channel"]["label"], url=c["channel"]["url"]))
+    
+    # Sponsor Config Check
     sponsor = d.get("sponsor", {})
-    footer = [InlineKeyboardButton("📢 کانال ما", url="https://t.me/CarPrice_Channel")]
     if sponsor.get("name") and sponsor.get("url"):
         footer.append(InlineKeyboardButton(f"⭐ {sponsor['name']}", url=sponsor['url']))
-    keyboard.append(footer)
+        
+    if footer: keyboard.append(footer)
     
     return InlineKeyboardMarkup(keyboard)
 
@@ -498,15 +535,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state_info["state"] == STATE_ADMIN_SET_SUPPORT:
         d = load_data()
         mode = "link" if text.startswith("http") else "text"
-        
-        # Auto convert @username to https://t.me/username
         if text.startswith("@"):
             text = f"https://t.me/{text.replace('@', '')}"
             mode = "link"
-
         d["support_config"] = {"mode": mode, "value": text}
         save_data(d)
-        
         type_msg = "لینک" if mode == "link" else "متن"
         await update.message.reply_text(f"✅ پشتیبانی تنظیم شد به صورت **{type_msg}**.\\nمقدار: {text}", parse_mode='Markdown')
         reset_state(user_id)
