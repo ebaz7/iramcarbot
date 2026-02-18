@@ -1,11 +1,12 @@
-import { CAR_DB, MOBILE_DB } from '../constants';
+
+import { CAR_DB, MOBILE_DB, YEARS, PAINT_CONDITIONS } from '../constants';
 
 // --- Bash Script Generator ---
 export const generateBashScript = (repoUrl: string): string => {
   return `#!/bin/bash
 
 # ==========================================
-# 🚗 Iran Car Bot Manager
+# 🚗 Iran Car Bot Manager (Classic)
 # ==========================================
 
 # Configuration
@@ -45,86 +46,71 @@ function setup_environment() {
 
     echo -e "\${BLUE}📂 Setting up Directory: \$INSTALL_DIR \${NC}"
     
+    # Fix corrupt directories
     if [ -d "\$INSTALL_DIR" ] && [ ! -d "\$INSTALL_DIR/.git" ]; then
-        echo -e "\${YELLOW}⚠️  Found corrupt or empty directory. Cleaning up...\${NC}"
+        echo -e "\${YELLOW}Cleaning up empty directory...\${NC}"
         rm -rf "\$INSTALL_DIR"
     fi
 
     if [ -d "\$INSTALL_DIR/.git" ]; then
-        echo -e "\${GREEN}🔄 Repository exists. Pulling latest changes...\${NC}"
+        echo -e "\${GREEN}🔄 Pulling latest changes...\${NC}"
         cd "\$INSTALL_DIR"
+        git reset --hard
         git pull
     else
-        echo -e "\${GREEN}⬇️  Cloning repository from \$REPO_URL...\${NC}"
+        echo -e "\${GREEN}⬇️  Cloning repository...\${NC}"
         git clone "\$REPO_URL" "\$INSTALL_DIR"
-        
         if [ ! -d "\$INSTALL_DIR" ]; then
-             echo -e "\${RED}❌ Error: Git clone failed. Directory not created.\${NC}"
-             pause
-             return 1
+             echo -e "\${RED}❌ Error: Git clone failed.\${NC}"
+             pause; return 1
         fi
-        
         cd "\$INSTALL_DIR"
     fi
 
     if [ ! -f "bot.py" ]; then
-        echo -e "\${RED}❌ Critical Error: bot.py still not found after cloning! \${NC}"
-        pause
-        return 1
+        echo -e "\${RED}❌ Error: bot.py not found.\${NC}"
+        pause; return 1
     fi
 
     if [ ! -d "venv" ]; then
-        echo -e "\${GREEN}🐍 Creating Python Virtual Environment...\${NC}"
+        echo -e "\${GREEN}🐍 Creating Virtual Environment...\${NC}"
         python3 -m venv venv
     fi
     
     source venv/bin/activate
-    
-    echo -e "\${GREEN}📚 Installing Python Libraries...\${NC}"
     pip install --upgrade pip
     pip install python-telegram-bot pandas openpyxl jdatetime
 }
 
 function configure_bot() {
     cd "\$INSTALL_DIR"
-    
-    echo -e "\n\${BLUE}⚙️  Bot Configuration \${NC}"
-    echo "------------------------------------------------"
+    echo -e "\\n\${BLUE}⚙️  Bot Configuration \${NC}"
     
     if grep -q "REPLACE_ME_TOKEN" bot.py; then
-        read -p "Enter your Telegram Bot Token: " BOT_TOKEN
-        read -p "Enter your Numeric Admin ID (from @userinfobot): " ADMIN_ID
+        read -p "Enter Telegram Bot Token: " BOT_TOKEN
+        read -p "Enter Admin Numeric ID: " ADMIN_ID
         
         sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
         sed -i "s/OWNER_ID = 0/OWNER_ID = \$ADMIN_ID/g" bot.py
-        
-        echo -e "\${GREEN}✅ Configuration saved.\${NC}"
+        echo -e "\${GREEN}✅ Config saved.\${NC}"
     else
-        echo -e "\${GREEN}✅ Bot is already configured.\${NC}"
-        read -p "Do you want to re-configure keys? (y/n): " RECONF
-        if [[ "\$RECONF" == "y" ]]; then
-             read -p "Enter NEW Telegram Bot Token: " BOT_TOKEN
-             read -p "Enter NEW Numeric Admin ID: " ADMIN_ID
-             
-             git checkout bot.py
-             sed -i "s/REPLACE_ME_TOKEN/\$BOT_TOKEN/g" bot.py
-             sed -i "s/OWNER_ID = 0/OWNER_ID = \$ADMIN_ID/g" bot.py
-             echo -e "\${GREEN}✅ Configuration updated.\${NC}"
-        fi
+        echo -e "\${GREEN}✅ Already configured.\${NC}"
     fi
-    echo "------------------------------------------------"
 }
 
 function setup_service() {
-    echo -e "\${BLUE}🤖 Setting up Systemd Service...\${NC}"
+    echo -e "\${BLUE}🤖 Setting up Service...\${NC}"
     
     SERVICE_FILE="/etc/systemd/system/\$SERVICE_NAME.service"
     CURRENT_USER=\$(whoami)
     PYTHON_EXEC="\$INSTALL_DIR/venv/bin/python"
 
+    # Ensure ownership
+    sudo chown -R \$CURRENT_USER:\$CURRENT_USER "\$INSTALL_DIR"
+
     sudo bash -c "cat > \$SERVICE_FILE" <<EOL
 [Unit]
-Description=Iran Car Price Bot Manager
+Description=Iran Car Price Bot
 After=network.target
 
 [Service]
@@ -141,279 +127,119 @@ EOL
     sudo systemctl daemon-reload
     sudo systemctl enable \$SERVICE_NAME
     sudo systemctl restart \$SERVICE_NAME
-    
     echo -e "\${GREEN}✅ Service started! \${NC}"
 }
 
 function create_shortcut() {
-    echo -e "\${BLUE}🔗 Creating global command 'carbot'...\${NC}"
     cp "\$0" "\$INSTALL_DIR/manager.sh"
     chmod +x "\$INSTALL_DIR/manager.sh"
     sudo ln -sf "\$INSTALL_DIR/manager.sh" /usr/local/bin/carbot
-    echo -e "\${GREEN}✅ Done! You can now type 'carbot' anywhere to open this menu.\${NC}"
+    echo -e "\${GREEN}🔗 Shortcut 'carbot' created.\${NC}"
 }
 
-# --- Backup/Restore Functions ---
+# --- Backup/Restore ---
 
-function send_backup_to_telegram() {
-    echo -e "\${BLUE}📤 Sending Backup to Telegram...\${NC}"
+function do_backup() {
+    BACKUP_DIR="\$HOME/carbot_backups"
+    mkdir -p "\$BACKUP_DIR"
+    TIMESTAMP=\$(date +"%Y%m%d_%H%M%S")
+    DEST="\$BACKUP_DIR/backup_\$TIMESTAMP.json"
     
-    if [ ! -f "\$INSTALL_DIR/bot.py" ]; then
-         echo -e "\${RED}❌ bot.py not found.\${NC}"
-         pause
-         return
-    fi
-
-    BOT_TOKEN=\$(grep "TOKEN =" "\$INSTALL_DIR/bot.py" | cut -d "'" -f 2)
-    ADMIN_ID=\$(grep "OWNER_ID =" "\$INSTALL_DIR/bot.py" | sed 's/OWNER_ID =//' | sed 's/ //g' | cut -d '#' -f 1)
-    
-    if [[ -z "\$BOT_TOKEN" || -z "\$ADMIN_ID" || "\$BOT_TOKEN" == "REPLACE_ME_TOKEN" ]]; then
-        echo -e "\${RED}❌ Bot credentials not configured.\${NC}"
-        pause
-        return
-    fi
-
-    DATA_FILE="\$INSTALL_DIR/bot_data.json"
-    if [ ! -f "\$DATA_FILE" ]; then
-        echo -e "\${RED}❌ Data file (bot_data.json) not found.\${NC}"
-        pause
-        return
-    fi
-
-    CAPTION="💾 Manual Backup from Server Panel - \$(date)"
-    response=\$(curl -s -F chat_id="\$ADMIN_ID" -F document=@"\$DATA_FILE" -F caption="\$CAPTION" "https://api.telegram.org/bot\$BOT_TOKEN/sendDocument")
-    
-    if [[ "\$response" == *"\\"ok\\":true"* ]]; then
-        echo -e "\${GREEN}✅ Backup sent to Telegram!\${NC}"
+    if [ -f "\$INSTALL_DIR/bot_data.json" ]; then
+        cp "\$INSTALL_DIR/bot_data.json" "\$DEST"
+        echo -e "\${GREEN}✅ Backup saved to: \$DEST\${NC}"
+        
+        # Telegram Send
+        read -p "Send to Telegram? (y/n): " snd
+        if [[ "\$snd" == "y" ]]; then
+            TOKEN=\$(grep "TOKEN =" "\$INSTALL_DIR/bot.py" | cut -d "'" -f 2)
+            ID=\$(grep "OWNER_ID =" "\$INSTALL_DIR/bot.py" | awk -F'=' '{print \$2}' | tr -d ' ')
+            curl -s -F chat_id="\$ID" -F document=@"\$DEST" -F caption="💾 Manual Backup" "https://api.telegram.org/bot\$TOKEN/sendDocument" > /dev/null
+            echo "Sent."
+        fi
     else
-        echo -e "\${RED}❌ Failed to send backup.\${NC}"
-        echo "Response: \$response"
+        echo -e "\${RED}No database found.\${NC}"
     fi
     pause
 }
 
-function configure_auto_backup() {
-    while true; do
-        clear
-        echo -e "\${BLUE}========================================\${NC}"
-        echo -e "\${YELLOW}      ⏱ Auto-Backup Configuration      \${NC}"
-        echo -e "\${BLUE}========================================\${NC}"
-        echo -e "1) Set \${GREEN}Hourly\${NC} (Every 1 Hour)"
-        echo -e "2) Set \${GREEN}Daily\${NC} (Every 24 Hours)"
-        echo -e "3) \${RED}Disable\${NC} Auto-Backup"
-        echo -e "0) Back"
-        echo -e "\${BLUE}========================================\${NC}"
-        read -p "Select interval: " interval_choice
-        
-        DATA_FILE="\$INSTALL_DIR/bot_data.json"
-        
-        # Ensure bot_data.json exists
-        if [ ! -f "\$DATA_FILE" ]; then
-            echo "{}" > "\$DATA_FILE"
-        fi
-
-        case \$interval_choice in
-            1)
-                # Use python to edit json safely
-                python3 -c "import json; d=json.load(open('\$DATA_FILE')); d['backup_interval']=1; json.dump(d, open('\$DATA_FILE','w'))"
-                echo -e "\${GREEN}✅ Set to Hourly. Restarting bot...\${NC}"
-                sudo systemctl restart \$SERVICE_NAME
-                pause
-                return
-                ;;
-            2)
-                python3 -c "import json; d=json.load(open('\$DATA_FILE')); d['backup_interval']=24; json.dump(d, open('\$DATA_FILE','w'))"
-                echo -e "\${GREEN}✅ Set to Daily. Restarting bot...\${NC}"
-                sudo systemctl restart \$SERVICE_NAME
-                pause
-                return
-                ;;
-            3)
-                python3 -c "import json; d=json.load(open('\$DATA_FILE')); d['backup_interval']=0; json.dump(d, open('\$DATA_FILE','w'))"
-                echo -e "\${YELLOW}🚫 Auto-Backup Disabled. Restarting bot...\${NC}"
-                sudo systemctl restart \$SERVICE_NAME
-                pause
-                return
-                ;;
-            0)
-                return
-                ;;
-            *)
-                echo "Invalid option."
-                pause
-                ;;
-        esac
-    done
-}
-
-function do_backup() {
-    while true; do
-        clear
-        echo -e "\${BLUE}========================================\${NC}"
-        echo -e "\${GREEN}      💾 Backup Management      \${NC}"
-        echo -e "\${BLUE}========================================\${NC}"
-        echo -e "1) \${GREEN}Local Backup\${NC} (Save to \$HOME/carbot_backups)"
-        echo -e "2) \${YELLOW}Send to Telegram\${NC} (Send file to Admin)"
-        echo -e "3) \${BLUE}Auto-Backup Settings\${NC} (Hourly/Daily)"
-        echo -e "0) Back to Main Menu"
-        echo -e "\${BLUE}========================================\${NC}"
-        read -p "Select an option: " subchoice
-
-        case \$subchoice in
-            1)
-                BACKUP_DIR="\$HOME/carbot_backups"
-                mkdir -p "\$BACKUP_DIR"
-                TIMESTAMP=\$(date +"%Y%m%d_%H%M%S")
-                DEST="\$BACKUP_DIR/backup_\$TIMESTAMP.json"
-                if [ -f "\$INSTALL_DIR/bot_data.json" ]; then
-                    cp "\$INSTALL_DIR/bot_data.json" "\$DEST"
-                    echo -e "\${GREEN}✅ Backup created: \$DEST\${NC}"
-                else
-                     echo -e "\${RED}No data file found.\${NC}"
-                fi
-                pause
-                ;;
-            2)
-                send_backup_to_telegram
-                ;;
-            3)
-                configure_auto_backup
-                ;;
-            0)
-                return
-                ;;
-            *)
-                echo -e "\${RED}Invalid option.\${NC}"
-                pause
-                ;;
-        esac
-    done
-}
-
 function do_restore() {
-    echo -e "\${BLUE}📥 Restore Data (Import)\${NC}"
-    echo -e "\${YELLOW}⚠️  This will OVERWRITE the current database!\${NC}"
-    read -p "Enter path to backup file: " BACKUP_PATH
+    echo -e "\${BLUE}📥 Restore Database\${NC}"
+    echo -e "\${YELLOW}⚠️  Overwrites current data!\${NC}"
+    read -p "Full path to backup file: " BACKUP_PATH
     
     if [ ! -f "\$BACKUP_PATH" ]; then
         echo -e "\${RED}❌ File not found.\${NC}"
-        pause
-        return
+        pause; return
     fi
     
     read -p "Are you sure? (y/n): " confirm
     if [[ "\$confirm" == "y" ]]; then
+        echo "Stopping service..."
         sudo systemctl stop \$SERVICE_NAME
+        
+        echo "Restoring file..."
         cp "\$BACKUP_PATH" "\$INSTALL_DIR/bot_data.json"
+        
+        # --- CRITICAL FIX FOR PERMISSIONS ---
+        echo "Fixing permissions..."
+        TARGET_USER=\$(stat -c '%U' "\$INSTALL_DIR")
+        TARGET_GROUP=\$(stat -c '%G' "\$INSTALL_DIR")
+        
+        if [ ! -z "\$TARGET_USER" ]; then
+            sudo chown "\$TARGET_USER:\$TARGET_GROUP" "\$INSTALL_DIR/bot_data.json"
+        fi
+        sudo chmod 644 "\$INSTALL_DIR/bot_data.json"
+        # ------------------------------------
+        
+        echo "Starting service..."
         sudo systemctl start \$SERVICE_NAME
-        echo -e "\${GREEN}✅ Restored successfully.\${NC}"
+        echo -e "\${GREEN}✅ Done.\${NC}"
     fi
     pause
 }
 
-# --- Menu Functions ---
+# --- Menu ---
 
 function do_install() {
-    echo -e "\${BLUE}🚀 Starting Installation...\${NC}"
     install_dependencies
     setup_environment
     if [ $? -eq 0 ]; then
         configure_bot
         setup_service
         create_shortcut
-        echo -e "\n\${GREEN}🎉 Complete! \${NC}"
-    else
-        echo -e "\n\${RED}❌ Failed. \${NC}"
+        echo -e "\\n\${GREEN}🎉 Installed Successfully!\${NC}"
     fi
     pause
 }
 
 function do_update() {
-    echo -e "\${BLUE}🔄 Updating Bot...\${NC}"
-    
-    if [ ! -d "\$INSTALL_DIR" ]; then
-        echo -e "\${RED}Bot is not installed yet. Please Install first.\${NC}"
-        pause
-        return
-    fi
-    
+    if [ ! -d "\$INSTALL_DIR" ]; then echo "Not installed."; pause; return; fi
     cd "\$INSTALL_DIR"
-    
-    echo "1. Saving current configuration..."
-    # Extract Token (handle spacing variations)
-    OLD_TOKEN=\$(grep "TOKEN =" bot.py | cut -d "'" -f 2)
-    # Extract ID
-    OLD_ID=\$(grep "OWNER_ID =" bot.py | sed 's/OWNER_ID =//' | sed 's/ //g' | cut -d '#' -f 1)
-    
-    echo "2. Forcing Git Pull (Resetting changes)..."
-    # IMPORTANT: Reset git to allow pull, then re-apply keys
+    echo "Updating..."
     git reset --hard
     git pull
-    
-    if [ -z "\$OLD_TOKEN" ] || [ -z "\$OLD_ID" ]; then
-         echo -e "\${YELLOW}⚠️  Could not backup credentials. You might need to re-enter them.\${NC}"
-    else 
-         echo "3. Restoring configuration..."
-         sed -i "s/REPLACE_ME_TOKEN/\$OLD_TOKEN/g" bot.py
-         sed -i "s/OWNER_ID = 0/OWNER_ID = \$OLD_ID/g" bot.py
-    fi
-
-    echo "4. Updating Menu Script..."
-    if [ -f "install.sh" ]; then
-        cp "install.sh" "manager.sh"
-        chmod +x "manager.sh"
-        echo -e "\${GREEN}✅ Menu script updated successfully.\${NC}"
-    fi
-    
-    echo "5. Restarting Service..."
-    check_root
     sudo systemctl restart \$SERVICE_NAME
-    
-    echo -e "\${GREEN}✅ Update Complete.\${NC}"
-    pause
+    echo -e "\${GREEN}✅ Updated.\${NC}"; pause
 }
 
 function do_uninstall() {
-    read -p "Delete everything? (y/n): " confirm
-    if [[ "\$confirm" == "y" ]]; then
+    read -p "Delete everything? (y/n): " c
+    if [[ "\$c" == "y" ]]; then
         sudo systemctl stop \$SERVICE_NAME
         sudo systemctl disable \$SERVICE_NAME
-        sudo rm /etc/systemd/system/\$SERVICE_NAME.service
-        sudo systemctl daemon-reload
         rm -rf "\$INSTALL_DIR"
         sudo rm /usr/local/bin/carbot
-        echo -e "\${GREEN}✅ Uninstalled.\${NC}"
+        echo "Deleted."; pause
     fi
-    pause
 }
 
-function do_logs() {
-    journalctl -u \$SERVICE_NAME -n 50 -f
-}
-
-function do_status() {
-    sudo systemctl status \$SERVICE_NAME
-    pause
-}
-
-function do_restart() {
-    sudo systemctl restart \$SERVICE_NAME
-    echo "Bot restarted."
-    pause
-}
-
-function do_stop() {
-    sudo systemctl stop \$SERVICE_NAME
-    echo "Bot stopped."
-    pause
-}
-
-# --- Main Menu Loop ---
+# --- Main Loop ---
 
 while true; do
     clear
     echo -e "\${BLUE}========================================\${NC}"
-    echo -e "\${GREEN}      🚗 Iran Car Bot Manager 🚗      \${NC}"
+    echo -e "\${GREEN}      🚗 Iran Car Bot Manager      \${NC}"
     echo -e "\${BLUE}========================================\${NC}"
     echo -e "1) \${GREEN}Install / Reinstall\${NC}"
     echo -e "2) \${YELLOW}Update Bot\${NC}"
@@ -421,8 +247,8 @@ while true; do
     echo -e "4) Check Status"
     echo -e "5) Restart Bot"
     echo -e "6) Stop Bot"
-    echo -e "7) \${BLUE}💾 Backup Data\${NC}"
-    echo -e "8) \${BLUE}📥 Restore Data\${NC}"
+    echo -e "7) \${BLUE}Backup Data\${NC}"
+    echo -e "8) \${BLUE}Restore Data\${NC} (Fixed)"
     echo -e "9) \${RED}Uninstall\${NC}"
     echo -e "0) Exit"
     echo -e "\${BLUE}========================================\${NC}"
@@ -431,10 +257,10 @@ while true; do
     case \$choice in
         1) do_install ;;
         2) do_update ;;
-        3) do_logs ;;
-        4) do_status ;;
-        5) do_restart ;;
-        6) do_stop ;;
+        3) journalctl -u \$SERVICE_NAME -n 50 -f ;;
+        4) sudo systemctl status \$SERVICE_NAME; pause ;;
+        5) sudo systemctl restart \$SERVICE_NAME; echo "Done."; pause ;;
+        6) sudo systemctl stop \$SERVICE_NAME; echo "Done."; pause ;;
         7) do_backup ;;
         8) do_restore ;;
         9) do_uninstall ;;
@@ -445,16 +271,18 @@ done
 `;
 };
 
-// --- Python Bot Code Generator ---
+// --- Python Bot Generator ---
 export const generatePythonCode = (): string => {
-  const carDbJson = JSON.stringify(CAR_DB);
-  const mobileDbJson = JSON.stringify(MOBILE_DB);
+  const carDbJson = JSON.stringify(CAR_DB, null, 4);
+  const mobileDbJson = JSON.stringify(MOBILE_DB, null, 4);
+  const paintConditionsJson = JSON.stringify(PAINT_CONDITIONS, null, 4);
 
   return `
 import logging
 import json
 import os
 import datetime
+import shutil
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
@@ -462,6 +290,12 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Callb
 TOKEN = 'REPLACE_ME_TOKEN' 
 OWNER_ID = 0
 DATA_FILE = 'bot_data.json'
+
+# --- SAFE LOAD ---
+CAR_DB = json.loads('''${carDbJson}''')
+MOBILE_DB = json.loads('''${mobileDbJson}''')
+PAINT_CONDITIONS = json.loads('''${paintConditionsJson}''')
+YEARS = ${JSON.stringify(YEARS)}
 
 # Default Menu Configuration
 DEFAULT_CONFIG = {
@@ -472,40 +306,20 @@ DEFAULT_CONFIG = {
     "mobile_webapp": {"label": "📱 قیمت موبایل (سایت)", "url": "https://www.mobile.ir/phones/prices.aspx", "active": True, "type": "webapp"},
     "mobile_list": {"label": "📲 لیست موبایل (ربات)", "active": True, "type": "internal"},
     "search": {"label": "🔍 جستجو", "active": True, "type": "internal"},
-    "support": {"label": "📞 پشتیبانی", "active": True, "type": "internal"}
+    "channel": {"label": "📢 کانال ما", "url": "https://t.me/CarPrice_Channel", "active": True, "type": "link"},
+    "support": {"label": "📞 پشتیبانی", "active": True, "type": "dynamic"}
 }
-
-# Load Database
-CAR_DB_JSON = '''${carDbJson}'''
-MOBILE_DB_JSON = '''${mobileDbJson}'''
-CAR_DB = json.loads(CAR_DB_JSON)
-MOBILE_DB = json.loads(MOBILE_DB_JSON)
-
-YEARS = [1404, 1403, 1402, 1401, 1400, 1399, 1398, 1397, 1396, 1395, 1394, 1393, 1392, 1391, 1390]
-PAINT_CONDITIONS = [
-  {"label": "بدون رنگ (سالم)", "drop": 0},
-  {"label": "لیسه گیری / خط و خش جزئی", "drop": 0.02},
-  {"label": "یک لکه رنگ (گلگیر/درب)", "drop": 0.04},
-  {"label": "دو لکه رنگ", "drop": 0.07},
-  {"label": "یک درب/گلگیر تعویض", "drop": 0.05},
-  {"label": "دور رنگ", "drop": 0.25},
-  {"label": "سقف و ستون رنگ", "drop": 0.40},
-  {"label": "تمام رنگ", "drop": 0.35},
-  {"label": "تعویض اتاق (قانونی)", "drop": 0.30}
-]
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 user_states = {}
-# User States
 STATE_IDLE = "IDLE"
 STATE_ESTIMATE_BRAND = "EST_BRAND"
 STATE_ESTIMATE_MODEL = "EST_MODEL"
 STATE_ESTIMATE_YEAR = "EST_YEAR"
 STATE_ESTIMATE_MILEAGE = "EST_MILEAGE"
 STATE_ESTIMATE_PAINT = "EST_PAINT"
-# Admin States
 STATE_ADMIN_ADD_ADMIN = "ADM_ADD_ADMIN"
 STATE_ADMIN_SPONSOR_NAME = "ADM_SPONSOR_NAME"
 STATE_ADMIN_SPONSOR_LINK = "ADM_SPONSOR_LINK"
@@ -516,21 +330,26 @@ STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 
 # --- Data Management ---
 def load_data():
+    default_data = {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG, "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."}}
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 d = json.load(f)
                 if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
-                # Merge defaults
                 for k, v in DEFAULT_CONFIG.items():
                     if k not in d["menu_config"]: d["menu_config"][k] = v
                 return d
-        except: pass
-    return {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG, "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."}}
+        except Exception:
+            return default_data
+    return default_data
 
 def save_data(data):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    try:
+        temp_file = f"{DATA_FILE}.tmp"
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        shutil.move(temp_file, DATA_FILE)
+    except: pass
 
 def register_user(user_id):
     d = load_data()
@@ -542,6 +361,33 @@ def register_user(user_id):
 def is_admin(user_id):
     d = load_data()
     return str(user_id) == str(OWNER_ID) or user_id in d.get("admins", [])
+
+# --- Backup Logic ---
+async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
+    if not os.path.exists(DATA_FILE): return
+    try:
+        d = load_data()
+        admins = d.get("admins", [])
+        targets = set(admins)
+        try:
+            if int(OWNER_ID) > 0: targets.add(int(OWNER_ID))
+        except: pass
+        
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        
+        for uid in targets:
+            try:
+                with open(DATA_FILE, 'rb') as f:
+                    await context.bot.send_document(
+                        chat_id=uid, 
+                        document=f,
+                        caption=f"💾 Auto-Backup: {timestamp}",
+                        filename="bot_data.json"
+                    )
+            except Exception as e:
+                logger.error(f"Failed to send backup to {uid}: {e}")
+    except Exception as e:
+        logger.error(f"Auto backup error: {e}")
 
 # --- Helper Functions ---
 def get_state(user_id):
@@ -560,47 +406,41 @@ def get_main_menu(user_id):
     d = load_data()
     c = d.get("menu_config", DEFAULT_CONFIG)
     sup_conf = d.get("support_config", {"mode": "text", "value": "..."})
-    
     keyboard = []
     
-    # Row 1: Web Apps
     row1 = []
     if c["calc"]["active"]: row1.append(InlineKeyboardButton(c["calc"]["label"], web_app=WebAppInfo(url=c["calc"]["url"])))
     if c["market"]["active"]: row1.append(InlineKeyboardButton(c["market"]["label"], web_app=WebAppInfo(url=c["market"]["url"])))
     if row1: keyboard.append(row1)
 
-    # Row 2: Internal Features
     row2 = []
     if c["prices"]["active"]: row2.append(InlineKeyboardButton(c["prices"]["label"], callback_data="menu_prices"))
     if c["estimate"]["active"]: row2.append(InlineKeyboardButton(c["estimate"]["label"], callback_data="menu_estimate"))
     if row2: keyboard.append(row2)
 
-    # Row 3: Mobile
     row3 = []
     if c.get("mobile_webapp", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_webapp"]["label"], web_app=WebAppInfo(url=c["mobile_webapp"]["url"])))
     if c.get("mobile_list", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_list"]["label"], callback_data="menu_mobile_list"))
     if row3: keyboard.append(row3)
 
-    # Row 4: Utilities + Support
     row4 = []
     if c["search"]["active"]: row4.append(InlineKeyboardButton(c["search"]["label"], callback_data="menu_search"))
-    
     if c["support"]["active"]:
         if sup_conf["mode"] == "link":
              row4.append(InlineKeyboardButton(c["support"]["label"], url=sup_conf["value"]))
         else:
              row4.append(InlineKeyboardButton(c["support"]["label"], callback_data="menu_support"))
-    
     if row4: keyboard.append(row4)
 
     if is_admin(user_id): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
     
-    # Sponsor Button
+    footer = []
+    if c.get("channel", {}).get("active"):
+        footer.append(InlineKeyboardButton(c["channel"]["label"], url=c["channel"]["url"]))
     sponsor = d.get("sponsor", {})
-    footer = [InlineKeyboardButton("📢 کانال ما", url="https://t.me/CarPrice_Channel")]
     if sponsor.get("name") and sponsor.get("url"):
         footer.append(InlineKeyboardButton(f"⭐ {sponsor['name']}", url=sponsor['url']))
-    keyboard.append(footer)
+    if footer: keyboard.append(footer)
     
     return InlineKeyboardMarkup(keyboard)
 
@@ -609,7 +449,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     register_user(user_id)
     reset_state(user_id)
-    await update.message.reply_text(f"👋 سلام! منوی اصلی:", reply_markup=get_main_menu(user_id))
+    await update.message.reply_text(f"👋 سلام! به ربات قیمت خودرو و موبایل خوش آمدید.\\n📅 امروز: {datetime.date.today()}", reply_markup=get_main_menu(user_id))
 
 async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -636,33 +476,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text="منوی اصلی:", reply_markup=get_main_menu(user_id))
         return
     
-    # --- ADMIN HOME ---
     if data == "admin_home" and is_admin(user_id):
         keyboard = [
-            [InlineKeyboardButton("⚙️ مدیریت دکمه‌ها و منو", callback_data="admin_menus")],
+            [InlineKeyboardButton("⚙️ مدیریت منو", callback_data="admin_menus")],
             [InlineKeyboardButton("📞 تنظیم پشتیبانی", callback_data="admin_set_support")],
-            [InlineKeyboardButton("👥 مدیریت ادمین‌ها", callback_data="admin_manage_admins")],
-            [InlineKeyboardButton("💾 بکاپ و دیتابیس", callback_data="admin_backup_menu")],
-            [InlineKeyboardButton("⭐ تنظیم اسپانسر", callback_data="admin_set_sponsor")],
-            [InlineKeyboardButton("📣 ارسال پیام همگانی", callback_data="admin_broadcast")],
+            [InlineKeyboardButton("👥 ادمین‌ها", callback_data="admin_manage_admins")],
+            [InlineKeyboardButton("💾 بکاپ", callback_data="admin_backup_menu")],
+            [InlineKeyboardButton("⭐ اسپانسر", callback_data="admin_set_sponsor")],
+            [InlineKeyboardButton("📣 پیام همگانی", callback_data="admin_broadcast")],
             [InlineKeyboardButton("🔙 خروج", callback_data="main_menu")]
         ]
-        await query.edit_message_text("🛠 **پنل مدیریت پیشرفته**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await query.edit_message_text("🛠 **پنل مدیریت**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
 
-    # --- ADMIN: SET SUPPORT ---
     if data == "admin_set_support":
         set_state(user_id, STATE_ADMIN_SET_SUPPORT)
-        await query.message.reply_text(
-            "📞 **تنظیم دکمه پشتیبانی**\\n\\n"
-            "لطفا یکی از موارد زیر را ارسال کنید:\\n"
-            "1. یک **لینک** (مثلا https://t.me/admin) -> دکمه به صورت لینک مستقیم باز می‌شود.\\n"
-            "2. یک **متن یا شماره** -> وقتی کاربر کلیک کند، این متن به او نمایش داده می‌شود.",
-            parse_mode='Markdown'
-        )
+        await query.message.reply_text("لینک یا متن پشتیبانی را وارد کنید:")
         return
 
-    # --- ADMIN: MENU MANAGEMENT ---
     if data == "admin_menus":
         d = load_data()
         c = d.get("menu_config", DEFAULT_CONFIG)
@@ -671,25 +502,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status = "✅" if val["active"] else "❌"
             keyboard.append([InlineKeyboardButton(f"{status} {val['label']}", callback_data=f"edit_menu_{key}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")])
-        await query.edit_message_text("⚙️ **مدیریت منو**\\n\\nکدام دکمه را می‌خواهید ویرایش کنید؟", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await query.edit_message_text("⚙️ مدیریت منو:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data.startswith("edit_menu_"):
         key = data.replace("edit_menu_", "")
         d = load_data()
         c = d.get("menu_config", DEFAULT_CONFIG).get(key, {})
-        
         status_text = "فعال ✅" if c["active"] else "غیرفعال ❌"
-        text = f"🔧 ویرایش دکمه: **{c['label']}**\\nوضعیت فعلی: {status_text}\\n"
-        if "url" in c: text += f"لینک فعلی: {c['url']}"
-        
-        keyboard = [
-            [InlineKeyboardButton("✏️ تغییر نام دکمه", callback_data=f"menu_set_label_{key}")],
-            [InlineKeyboardButton("👁️ تغییر وضعیت (روشن/خاموش)", callback_data=f"menu_toggle_{key}")]
-        ]
-        if "url" in c:
-            keyboard.append([InlineKeyboardButton("🔗 تغییر لینک", callback_data=f"menu_set_url_{key}")])
-        
+        text = f"🔧 دکمه: **{c['label']}**\\nوضعیت: {status_text}\\n"
+        if "url" in c: text += f"لینک: {c['url']}"
+        keyboard = [[InlineKeyboardButton("✏️ تغییر نام", callback_data=f"menu_set_label_{key}")], [InlineKeyboardButton("👁️ تغییر وضعیت", callback_data=f"menu_toggle_{key}")]]
+        if "url" in c: keyboard.append([InlineKeyboardButton("🔗 تغییر لینک", callback_data=f"menu_set_url_{key}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_menus")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
@@ -700,9 +524,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
         d["menu_config"][key]["active"] = not d["menu_config"][key]["active"]
         save_data(d)
-        new_status = "✅ فعال" if d["menu_config"][key]["active"] else "❌ غیرفعال"
-        await query.answer(f"دکمه {new_status} شد", show_alert=True)
-        # Refresh Logic
+        await query.answer(f"دکمه {'✅' if d['menu_config'][key]['active'] else '❌'} شد", show_alert=True)
         query.data = f"edit_menu_{key}" 
         await handle_callback(update, context) 
         return
@@ -711,54 +533,47 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         key = data.replace("menu_set_label_", "")
         update_data(user_id, "edit_key", key)
         set_state(user_id, STATE_ADMIN_EDIT_MENU_LABEL)
-        await query.message.reply_text(f"✍️ نام جدید برای این دکمه را وارد کنید:")
+        await query.message.reply_text("نام جدید:")
         return
 
     if data.startswith("menu_set_url_"):
         key = data.replace("menu_set_url_", "")
         update_data(user_id, "edit_key", key)
         set_state(user_id, STATE_ADMIN_EDIT_MENU_URL)
-        await query.message.reply_text(f"🔗 لینک جدید را وارد کنید (باید با https شروع شود):")
+        await query.message.reply_text("لینک جدید:")
         return
 
-    # --- ADMIN: SPONSOR ---
     if data == "admin_set_sponsor":
         set_state(user_id, STATE_ADMIN_SPONSOR_NAME)
-        await query.message.reply_text("✍️ نام اسپانسر را وارد کنید:")
+        await query.message.reply_text("نام اسپانسر:")
         return
 
-    # --- ADMIN: BROADCAST ---
     if data == "admin_broadcast":
         set_state(user_id, STATE_ADMIN_BROADCAST)
-        await query.message.reply_text("✍️ متن پیام همگانی را بفرستید (برای همه کاربران ارسال می‌شود):")
+        await query.message.reply_text("متن پیام همگانی:")
         return
 
-    # --- ADMIN: MANAGE ADMINS ---
     if data == "admin_manage_admins":
         d = load_data()
         admins = d.get("admins", [])
-        text = f"👥 لیست ادمین‌ها:\\nOwner: {OWNER_ID}\\n" + "\\n".join([str(a) for a in admins])
-        keyboard = [
-            [InlineKeyboardButton("➕ افزودن ادمین جدید", callback_data="admin_add_new_admin")],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
-        ]
+        text = f"👥 ادمین‌ها:\\nOwner: {OWNER_ID}\\n" + "\\n".join([str(a) for a in admins])
+        keyboard = [[InlineKeyboardButton("➕ افزودن ادمین", callback_data="admin_add_new_admin")], [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data == "admin_add_new_admin":
         set_state(user_id, STATE_ADMIN_ADD_ADMIN)
-        await query.message.reply_text("🔢 شناسه عددی (ID) کاربر را وارد کنید:")
+        await query.message.reply_text("ID عددی کاربر:")
         return
 
-    # --- BACKUP MENU ---
     if data == "admin_backup_menu" and is_admin(user_id):
         d = load_data()
         interval = d.get("backup_interval", 0)
         status = "❌ خاموش" if interval == 0 else (f"✅ هر {interval} ساعت")
         keyboard = [
-            [InlineKeyboardButton("📥 دریافت بکاپ (همین الان)", callback_data="backup_get_now")],
-            [InlineKeyboardButton("⏱ تنظیم ساعتی (1h)", callback_data="backup_set_1h"), InlineKeyboardButton("📅 تنظیم روزانه (24h)", callback_data="backup_set_24h")],
-            [InlineKeyboardButton("🚫 خاموش کردن بکاپ", callback_data="backup_off")],
+            [InlineKeyboardButton("📥 دریافت بکاپ", callback_data="backup_get_now")],
+            [InlineKeyboardButton("⏱ تنظیم ساعتی", callback_data="backup_set_1h"), InlineKeyboardButton("📅 تنظیم روزانه", callback_data="backup_set_24h")],
+            [InlineKeyboardButton("🚫 خاموش", callback_data="backup_off")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
         ]
         await query.edit_message_text(f"💾 مدیریت بکاپ\\nوضعیت: {status}", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -777,23 +592,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         d = load_data()
         d['backup_interval'] = new_interval
         save_data(d)
-        await query.edit_message_text(f"✅ تنظیم شد: {new_interval} ساعت", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="admin_backup_menu")]]))
+        await query.edit_message_text(f"✅ تنظیم شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت", callback_data="admin_backup_menu")]]))
         return
 
-    # --- USER: SUPPORT HANDLER ---
     if data == "menu_support":
         d = load_data()
         sup_conf = d.get("support_config", {"mode": "text", "value": "..."})
-        text_val = sup_conf["value"]
-        await query.message.reply_text(f"📞 **اطلاعات پشتیبانی:**\\n\\n{text_val}", parse_mode='Markdown')
+        await query.message.reply_text(f"📞 {sup_conf['value']}")
         return
 
-    # --- MOBILE FLOW ---
     if data == "menu_mobile_list":
         keyboard = []
         for brand in MOBILE_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"mob_brand_{brand}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
-        await query.edit_message_text("📱 برند موبایل را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("📱 برند موبایل:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data.startswith("mob_brand_"):
@@ -810,23 +622,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = data.split("_")
         brand_name = parts[2]
         model_name = parts[3]
-        
         found_model = None
         if brand_name in MOBILE_DB:
             for m in MOBILE_DB[brand_name]["models"]:
                 if m["name"] == model_name: found_model = m; break
         
         if found_model:
-            text = (f"📱 **قیمت روز موبایل**\\n"
-                    f"🏷 مدل: {found_model['name']}\\n"
-                    f"💾 حافظه: {found_model.get('storage', '-')}\\n"
-                    f"-------------------\\n"
-                    f"💰 **قیمت تقریبی:** {found_model['price']} میلیون تومان")
+            text = (f"📱 **{found_model['name']}**\\n💾 {found_model.get('storage', '-')}\\n💰 {found_model['price']} میلیون تومان")
             keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"mob_brand_{brand_name}")]]
             await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-    # --- CAR ESTIMATION FLOW ---
     if data == "menu_prices":
         keyboard = []
         for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
@@ -836,8 +642,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("brand_"):
         brand_name = data.replace("brand_", "")
-        current_state = get_state(user_id)["state"]
-        if current_state == STATE_ESTIMATE_BRAND:
+        if get_state(user_id)["state"] == STATE_ESTIMATE_BRAND:
             update_data(user_id, "brand", brand_name)
             set_state(user_id, STATE_ESTIMATE_MODEL)
             keyboard = []
@@ -856,8 +661,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("model_"):
         model_name = data.replace("model_", "")
-        current_state = get_state(user_id)["state"]
-        if current_state == STATE_ESTIMATE_MODEL:
+        if get_state(user_id)["state"] == STATE_ESTIMATE_MODEL:
             update_data(user_id, "model", model_name)
             set_state(user_id, STATE_ESTIMATE_YEAR)
             keyboard = []
@@ -892,7 +696,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if found_variant:
             floor = int(found_variant["marketPrice"] * 0.985)
-            text = (f"📊 **استعلام قیمت**\\n🚘 {found_variant['name']}\\n-------------------\\n📉 **کف قیمت بازار:**\\n💰 {floor:,} م ت\\n🏭 **کارخانه:**\\n🏦 {found_variant['factoryPrice']:,} م ت")
+            text = (f"🚘 {found_variant['name']}\\n📉 بازار: {floor:,} م ت\\n🏭 کارخانه: {found_variant['factoryPrice']:,} م ت")
             keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"model_{model_name}")]]
             await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return
@@ -909,7 +713,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         year = int(data.replace("year_", ""))
         update_data(user_id, "year", year)
         set_state(user_id, STATE_ESTIMATE_MILEAGE)
-        await query.edit_message_text("کارکرد (کیلومتر) را وارد کنید (فقط عدد):")
+        await query.edit_message_text("کارکرد (کیلومتر) به عدد:")
         return
 
     if data.startswith("paint_"):
@@ -934,7 +738,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_drop = age_drop + mileage_drop + condition["drop"]
         final_price = round((zero_price * (1 - total_drop)) / 5) * 5
         
-        result = (f"🎯 **کارشناسی قیمت**\\n🚙 **{brand} {model}**\\n-----------------\\n📅 سال: {year} | 🛣 کارکرد: {mileage:,}\\n🎨 بدنه: {condition['label']}\\n-----------------\\n💰 **قیمت تقریبی: {final_price:,} میلیون تومان**")
+        result = (f"🎯 **کارشناسی {brand} {model}**\\n📅 {year} | 🛣 {mileage:,}\\n🎨 {condition['label']}\\n💰 **تقریبی: {final_price:,} م ت**")
         keyboard = [[InlineKeyboardButton("🏠 منوی اصلی", callback_data="main_menu")]]
         await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         reset_state(user_id)
@@ -949,49 +753,38 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🆔 {user_id}")
         return
 
-    # --- ADMIN: SET SUPPORT ---
     if state_info["state"] == STATE_ADMIN_SET_SUPPORT:
         d = load_data()
         mode = "link" if text.startswith("http") else "text"
-        
-        # Auto convert @username to https://t.me/username
         if text.startswith("@"):
             text = f"https://t.me/{text.replace('@', '')}"
             mode = "link"
-
         d["support_config"] = {"mode": mode, "value": text}
         save_data(d)
-        
-        type_msg = "لینک" if mode == "link" else "متن"
-        await update.message.reply_text(f"✅ پشتیبانی تنظیم شد به صورت **{type_msg}**.\\nمقدار: {text}", parse_mode='Markdown')
+        await update.message.reply_text(f"✅ پشتیبانی تنظیم شد.")
         reset_state(user_id)
         return
 
-    # --- ADMIN: EDIT MENU INPUTS ---
     if state_info["state"] == STATE_ADMIN_EDIT_MENU_LABEL:
         key = state_info["data"].get("edit_key")
         d = load_data()
         if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
         d["menu_config"][key]["label"] = text
         save_data(d)
-        await update.message.reply_text(f"✅ نام دکمه تغییر کرد به: {text}")
+        await update.message.reply_text(f"✅ انجام شد.")
         reset_state(user_id)
         return
 
     if state_info["state"] == STATE_ADMIN_EDIT_MENU_URL:
         key = state_info["data"].get("edit_key")
-        if not text.startswith("http"):
-            await update.message.reply_text("❌ لینک نامعتبر است. با http یا https شروع کنید.")
-            return
         d = load_data()
         if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
         d["menu_config"][key]["url"] = text
         save_data(d)
-        await update.message.reply_text(f"✅ لینک دکمه آپدیت شد.")
+        await update.message.reply_text(f"✅ انجام شد.")
         reset_state(user_id)
         return
 
-    # --- ADMIN INPUTS ---
     if state_info["state"] == STATE_ADMIN_ADD_ADMIN:
         try:
             new_admin_id = int(text)
@@ -999,15 +792,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "admins" not in d: d["admins"] = []
             if new_admin_id not in d["admins"]: d["admins"].append(new_admin_id)
             save_data(d)
-            await update.message.reply_text(f"✅ ادمین {new_admin_id} اضافه شد.")
-        except: await update.message.reply_text("❌ خطا: فقط عدد وارد کنید.")
+            await update.message.reply_text(f"✅ ادمین اضافه شد.")
+        except: await update.message.reply_text("❌ خطا: عدد وارد کنید.")
         reset_state(user_id)
         return
 
     if state_info["state"] == STATE_ADMIN_SPONSOR_NAME:
         update_data(user_id, "sponsor_name", text)
         set_state(user_id, STATE_ADMIN_SPONSOR_LINK)
-        await update.message.reply_text("🔗 حالا لینک اسپانسر را وارد کنید:")
+        await update.message.reply_text("لینک اسپانسر:")
         return
 
     if state_info["state"] == STATE_ADMIN_SPONSOR_LINK:
@@ -1028,11 +821,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=uid, text=text)
                 count += 1
             except: pass
-        await update.message.reply_text(f"✅ پیام به {count} نفر ارسال شد.")
+        await update.message.reply_text(f"✅ ارسال به {count} نفر.")
         reset_state(user_id)
         return
 
-    # --- ESTIMATION INPUTS ---
     if state_info["state"] == STATE_ESTIMATE_MILEAGE:
         try:
             mileage = int(text.replace(",", ""))
@@ -1053,7 +845,6 @@ async def post_init(application):
     interval = data.get("backup_interval", 0)
     if interval > 0:
         application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=60, name='auto_backup')
-    # Fix Commands
     try:
         await application.bot.set_my_commands([
             BotCommand("start", "🏠 منوی اصلی"),
