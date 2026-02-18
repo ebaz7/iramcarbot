@@ -39,9 +39,11 @@ function check_root() {
 function setup_credentials() {
     echo -e "\\n\${YELLOW}🔐 Security Setup (MANDATORY)\${NC}"
     echo "You MUST create a password for this panel."
-    echo "If you reinstall or move to another server, set the SAME password to avoid confusion."
+    echo "This password protects the 'Restore' function and menu access."
     echo ""
     
+    mkdir -p "\$INSTALL_DIR"
+
     while true; do
         read -p "Enter Manager Username: " NEW_USER
         read -s -p "Enter Manager Password: " PASS1
@@ -50,7 +52,6 @@ function setup_credentials() {
         echo ""
         
         if [ "\$PASS1" == "\$PASS2" ] && [ ! -z "\$PASS1" ] && [ ! -z "\$NEW_USER" ]; then
-            mkdir -p "\$INSTALL_DIR"
             echo "PANEL_USER=\"\$NEW_USER\"" > "\$SECRET_FILE"
             echo "PANEL_PASS=\"\$PASS1\"" >> "\$SECRET_FILE"
             chmod 600 "\$SECRET_FILE"
@@ -80,8 +81,7 @@ function check_auth() {
         echo -e "\${GREEN}🔓 Access Granted.\${NC}"
         sleep 0.5
     else
-        # If no secret file, it implies not installed or corrupted.
-        # We don't force auth here so user can select Install.
+        # If no secret file, do not block main menu yet (allows Install to run)
         return
     fi
 }
@@ -98,12 +98,10 @@ function setup_environment() {
 
     echo -e "\${BLUE}📂 Setting up Directory: \$INSTALL_DIR \${NC}"
     
-    # If .git missing, clean up
     if [ -d "\$INSTALL_DIR" ] && [ ! -d "\$INSTALL_DIR/.git" ]; then
         rm -rf "\$INSTALL_DIR"
     fi
 
-    # Clone or Pull
     if [ -d "\$INSTALL_DIR/.git" ]; then
         echo -e "\${GREEN}🔄 Repository exists. Pulling latest changes...\${NC}"
         cd "\$INSTALL_DIR"
@@ -113,7 +111,7 @@ function setup_environment() {
         git clone "\$REPO_URL" "\$INSTALL_DIR"
         
         if [ ! -d "\$INSTALL_DIR" ]; then
-             echo -e "\${RED}❌ Error: Git clone failed. Directory not created.\${NC}"
+             echo -e "\${RED}❌ Error: Git clone failed.\${NC}"
              pause
              return 1
         fi
@@ -121,14 +119,12 @@ function setup_environment() {
         cd "\$INSTALL_DIR"
     fi
 
-    # Ensure bot.py exists
     if [ ! -f "bot.py" ]; then
         echo -e "\${RED}❌ Critical Error: bot.py not found!\${NC}"
         pause
         return 1
     fi
 
-    # Virtual Env
     if [ ! -d "venv" ]; then
         echo -e "\${GREEN}🐍 Creating Python Virtual Environment...\${NC}"
         python3 -m venv venv
@@ -144,7 +140,7 @@ function setup_environment() {
 function configure_bot() {
     cd "\$INSTALL_DIR"
     
-    # If no secret file exists, force setup credentials NOW
+    # Force credentials setup during install/config
     if [ ! -f "\$SECRET_FILE" ]; then
         setup_credentials
     fi
@@ -222,20 +218,27 @@ function do_restore() {
         echo -e "\${RED}❌ File not found.\${NC}"; pause; return
     fi
     
-    # Validation
     if ! python3 -m json.tool "\$BACKUP_PATH" > /dev/null 2>&1; then
         echo -e "\${RED}❌ Error: Invalid JSON file.\${NC}"; pause; return
     fi
 
-    # Security check for sensitive operation
+    # --- CRITICAL SECURITY CHECK ---
+    # Restore requires Authentication of the CURRENT panel owner.
+    echo -e "\\n\${YELLOW}🔒 RESTORE PROTECTED: Enter Current Panel Password\${NC}"
+    
     if [ -f "\$SECRET_FILE" ]; then
         source "\$SECRET_FILE"
-        echo -e "\${YELLOW}🔐 Confirm Password to Restore:\${NC}"
-        read -s -p "Password: " CHECK_PASS
-        echo ""
-        if [ "\$CHECK_PASS" != "\$PANEL_PASS" ]; then
-            echo -e "\${RED}❌ Wrong password.\${NC}"; pause; return
-        fi
+    else
+        echo -e "\${RED}❌ Security file missing. Reinstall first.\${NC}"; pause; return
+    fi
+
+    read -s -p "Password: " CHECK_PASS
+    echo ""
+    
+    if [ "\$CHECK_PASS" != "\$PANEL_PASS" ]; then
+        echo -e "\${RED}❌ WRONG PASSWORD. Restore Blocked.\${NC}"
+        echo "You must authenticate with the current system password to overwrite data."
+        pause; return
     fi
     
     echo "Stopping bot..."
@@ -244,14 +247,37 @@ function do_restore() {
     echo "Restoring..."
     cp "\$BACKUP_PATH" "\$INSTALL_DIR/bot_data.json"
     
-    # Fix Permissions
     CURRENT_USER=\$(whoami)
     sudo chown \$CURRENT_USER:\$CURRENT_USER "\$INSTALL_DIR/bot_data.json"
     
     echo "Starting bot..."
     sudo systemctl start \$SERVICE_NAME
-    echo -e "\${GREEN}✅ Done.\${NC}"
+    echo -e "\${GREEN}✅ Restore Successful.\${NC}"
     pause
+}
+
+function send_telegram_manual_backup() {
+     # Robust extraction of credentials
+     BOT_TOKEN=\$(grep "TOKEN =" "\$INSTALL_DIR/bot.py" | awk -F"'" '{print \$2}')
+     # Filter for numeric ID only
+     ADMIN_ID=\$(grep "OWNER_ID =" "\$INSTALL_DIR/bot.py" | grep -o '[0-9]*' | head -n 1)
+     
+     if [[ -z "\$BOT_TOKEN" || "\$BOT_TOKEN" == "REPLACE_ME_TOKEN" ]]; then
+        echo -e "\${RED}❌ Bot token not configured in bot.py\${NC}"; pause; return
+     fi
+     
+     DATA_FILE="\$INSTALL_DIR/bot_data.json"
+     CAPTION="💾 Manual Backup (Bash Panel) - \$(date)"
+     
+     echo "Sending to Admin ID: \$ADMIN_ID ..."
+     
+     response=\$(curl -s -F chat_id="\$ADMIN_ID" -F document=@"\$DATA_FILE" -F caption="\$CAPTION" "https://api.telegram.org/bot\$BOT_TOKEN/sendDocument")
+     
+     if [[ "\$response" == *"\\"ok\\":true"* ]]; then
+         echo -e "\${GREEN}✅ Sent successfully!\${NC}"
+     else
+         echo -e "\${RED}❌ Failed. Response: \$response\${NC}"
+     fi
 }
 
 function do_backup() {
@@ -260,13 +286,32 @@ function do_backup() {
     TIMESTAMP=\$(date +"%Y%m%d_%H%M%S")
     DEST="\$BACKUP_DIR/backup_\$TIMESTAMP.json"
     
-    if [ -f "\$INSTALL_DIR/bot_data.json" ]; then
-        cp "\$INSTALL_DIR/bot_data.json" "\$DEST"
-        echo -e "\${GREEN}✅ Backup saved: \$DEST\${NC}"
-    else
-        echo -e "\${RED}❌ No database found.\${NC}"
+    if [ ! -f "\$INSTALL_DIR/bot_data.json" ]; then
+        echo -e "\${RED}❌ No database found.\${NC}"; pause; return
     fi
-    pause
+
+    while true; do
+        clear
+        echo -e "1) Save to Server (\$HOME/carbot_backups)"
+        echo -e "2) Send to Telegram (Manual)"
+        echo -e "3) Auto-Backup Settings"
+        echo -e "0) Back"
+        read -p "Select: " sub
+        
+        case \$sub in
+            1)
+                cp "\$INSTALL_DIR/bot_data.json" "\$DEST"
+                echo -e "\${GREEN}✅ Saved: \$DEST\${NC}"; pause ;;
+            2)
+                send_telegram_manual_backup; pause ;;
+            3)
+                read -p "Set Interval (1=Hourly, 24=Daily, 0=Off): " intr
+                python3 -c "import json; d=json.load(open('\$INSTALL_DIR/bot_data.json')); d['backup_interval']=int('\$intr'); json.dump(d, open('\$INSTALL_DIR/bot_data.json','w'))"
+                sudo systemctl restart \$SERVICE_NAME
+                echo "Updated."; pause ;;
+            0) return ;;
+        esac
+    done
 }
 
 # --- Main Menu Actions ---
@@ -286,7 +331,7 @@ function do_install() {
 }
 
 function do_uninstall() {
-    echo -e "\${RED}🗑️  WARNING: This will delete the bot, database, AND PASSWORD!\${NC}"
+    echo -e "\${RED}🗑️  WARNING: Deletes bot, data, AND PASSWORD!\${NC}"
     read -p "Are you sure? (y/n): " confirm
     if [[ "\$confirm" == "y" ]]; then
         sudo systemctl stop \$SERVICE_NAME
@@ -295,8 +340,7 @@ function do_uninstall() {
         sudo systemctl daemon-reload
         rm -rf "\$INSTALL_DIR"
         sudo rm /usr/local/bin/carbot
-        echo -e "\${GREEN}✅ Uninstalled completely.\${NC}"
-        # Exit script immediately as files are gone
+        echo -e "\${GREEN}✅ Uninstalled.\${NC}"
         exit 0
     fi
     pause
@@ -306,20 +350,17 @@ function do_update() {
     if [ ! -d "\$INSTALL_DIR" ]; then echo "Not installed."; pause; return; fi
     cd "\$INSTALL_DIR"
     
-    # Backup Credentials before reset
-    OLD_TOKEN=\$(grep "TOKEN =" bot.py | cut -d "'" -f 2)
-    OLD_ID=\$(grep "OWNER_ID =" bot.py | sed 's/OWNER_ID =//' | cut -d '#' -f 1 | xargs)
+    OLD_TOKEN=\$(grep "TOKEN =" bot.py | awk -F"'" '{print \$2}')
+    OLD_ID=\$(grep "OWNER_ID =" bot.py | grep -o '[0-9]*' | head -n 1)
     
     git reset --hard
     git pull
     
-    # Restore Keys
     if [ ! -z "\$OLD_TOKEN" ]; then
          sed -i "s/REPLACE_ME_TOKEN/\$OLD_TOKEN/g" bot.py
          sed -i "s/OWNER_ID = 0/OWNER_ID = \$OLD_ID/g" bot.py
     fi
     
-    # Update manager script
     if [ -f "install.sh" ]; then cp "install.sh" "manager.sh"; chmod +x "manager.sh"; fi
     
     sudo systemctl restart \$SERVICE_NAME
@@ -329,7 +370,6 @@ function do_update() {
 
 # --- Main Loop ---
 
-# Attempt auth if installed
 check_auth
 
 while true; do
@@ -363,7 +403,6 @@ done
 
 // --- Python Bot Generator ---
 export const generatePythonCode = (): string => {
-  // We stringify the JSON first, but we must escape it for Python triple-quotes
   const carDbJson = JSON.stringify(CAR_DB, null, 4);
   const mobileDbJson = JSON.stringify(MOBILE_DB, null, 4);
   const paintConditionsJson = JSON.stringify(PAINT_CONDITIONS, null, 4);
@@ -382,14 +421,13 @@ TOKEN = 'REPLACE_ME_TOKEN'
 OWNER_ID = 0
 DATA_FILE = 'bot_data.json'
 
-# --- FIXED: Load Data Safely from Strings ---
-# This prevents the "true vs True" crash in Python
+# --- SAFE LOAD ---
 CAR_DB = json.loads('''${carDbJson}''')
 MOBILE_DB = json.loads('''${mobileDbJson}''')
 PAINT_CONDITIONS = json.loads('''${paintConditionsJson}''')
 YEARS = ${JSON.stringify(YEARS)}
 
-# Default Menu Configuration (Python Dict Syntax)
+# Default Menu Configuration
 DEFAULT_CONFIG = {
     "calc": {"label": "🧮 ماشین‌حساب", "url": "https://www.hamrah-mechanic.com/carprice/", "active": True, "type": "webapp"},
     "market": {"label": "🌐 قیمت بازار", "url": "https://www.iranjib.ir/showgroup/45/", "active": True, "type": "webapp"},
@@ -423,7 +461,6 @@ STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 # --- Data Management ---
 def load_data():
     default_data = {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG, "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."}}
-    
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
@@ -455,25 +492,49 @@ def is_admin(user_id):
     d = load_data()
     return str(user_id) == str(OWNER_ID) or user_id in d.get("admins", [])
 
+# --- Backup Logic ---
+async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
+    if not os.path.exists(DATA_FILE): return
+    try:
+        d = load_data()
+        admins = d.get("admins", [])
+        targets = set(admins)
+        try:
+            if int(OWNER_ID) > 0: targets.add(int(OWNER_ID))
+        except: pass
+        
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        
+        for uid in targets:
+            try:
+                await context.bot.send_document(
+                    chat_id=uid, 
+                    document=open(DATA_FILE, 'rb'),
+                    caption=f"💾 Auto-Backup: {timestamp}",
+                    filename="bot_data.json"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send backup to {uid}: {e}")
+    except Exception as e:
+        logger.error(f"Auto backup error: {e}")
+
+# --- Helper Functions ---
 def get_state(user_id):
     if user_id not in user_states: user_states[user_id] = {"state": STATE_IDLE, "data": {}}
     return user_states[user_id]
-
 def set_state(user_id, state):
     if user_id not in user_states: user_states[user_id] = {"state": state, "data": {}}
     else: user_states[user_id]["state"] = state
-
 def update_data(user_id, key, value):
     if user_id in user_states: user_states[user_id]["data"][key] = value
-
 def reset_state(user_id):
     user_states[user_id] = {"state": STATE_IDLE, "data": {}}
 
+# --- Keyboards ---
 def get_main_menu(user_id):
     d = load_data()
     c = d.get("menu_config", DEFAULT_CONFIG)
     sup_conf = d.get("support_config", {"mode": "text", "value": "..."})
-    
     keyboard = []
     
     row1 = []
@@ -505,15 +566,14 @@ def get_main_menu(user_id):
     footer = []
     if c.get("channel", {}).get("active"):
         footer.append(InlineKeyboardButton(c["channel"]["label"], url=c["channel"]["url"]))
-    
     sponsor = d.get("sponsor", {})
     if sponsor.get("name") and sponsor.get("url"):
         footer.append(InlineKeyboardButton(f"⭐ {sponsor['name']}", url=sponsor['url']))
-        
     if footer: keyboard.append(footer)
     
     return InlineKeyboardMarkup(keyboard)
 
+# --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     register_user(user_id)
@@ -581,11 +641,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_text = "فعال ✅" if c["active"] else "غیرفعال ❌"
         text = f"🔧 دکمه: **{c['label']}**\\nوضعیت: {status_text}\\n"
         if "url" in c: text += f"لینک: {c['url']}"
-        
-        keyboard = [
-            [InlineKeyboardButton("✏️ تغییر نام", callback_data=f"menu_set_label_{key}")],
-            [InlineKeyboardButton("👁️ تغییر وضعیت", callback_data=f"menu_toggle_{key}")]
-        ]
+        keyboard = [[InlineKeyboardButton("✏️ تغییر نام", callback_data=f"menu_set_label_{key}")], [InlineKeyboardButton("👁️ تغییر وضعیت", callback_data=f"menu_toggle_{key}")]]
         if "url" in c: keyboard.append([InlineKeyboardButton("🔗 تغییر لینک", callback_data=f"menu_set_url_{key}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_menus")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -597,8 +653,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
         d["menu_config"][key]["active"] = not d["menu_config"][key]["active"]
         save_data(d)
-        new_status = "✅ فعال" if d["menu_config"][key]["active"] else "❌ غیرفعال"
-        await query.answer(f"دکمه {new_status} شد", show_alert=True)
+        await query.answer(f"دکمه {'✅' if d['menu_config'][key]['active'] else '❌'} شد", show_alert=True)
         query.data = f"edit_menu_{key}" 
         await handle_callback(update, context) 
         return
@@ -914,6 +969,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 async def post_init(application):
+    # Auto-Backup
+    data = load_data()
+    interval = data.get("backup_interval", 0)
+    if interval > 0:
+        application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=60, name='auto_backup')
     try:
         await application.bot.set_my_commands([
             BotCommand("start", "🏠 منوی اصلی"),
