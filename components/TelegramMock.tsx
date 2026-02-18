@@ -12,7 +12,6 @@ const DEFAULT_MENU_CONFIG: any = {
     "mobile_webapp": {"label": "📱 قیمت موبایل (سایت)", "url": "https://www.mobile.ir/phones/prices.aspx", "active": true, "type": "webapp"},
     "mobile_list": {"label": "📲 لیست موبایل (ربات)", "active": true, "type": "internal"},
     "search": {"label": "🔍 جستجو", "active": true, "type": "internal"},
-    "channel": {"label": "📢 کانال ما", "url": "https://t.me/CarPrice_Channel", "active": true, "type": "link"},
     "support": {"label": "📞 پشتیبانی", "active": true, "type": "internal"}
 };
 
@@ -27,6 +26,7 @@ const TelegramMock: React.FC = () => {
   const [isAdminMode, setIsAdminMode] = useState(false);
   
   // Configs
+  const [channelUrl, setChannelUrl] = useState("https://t.me/CarPrice_Channel");
   const [sponsorConfig, setSponsorConfig] = useState<{name?: string, url?: string}>({});
   const [supportConfig, setSupportConfig] = useState<{mode: "text" | "link", value: string}>({mode: "text", value: "لطفا پیام خود را بنویسید..."});
   const [lastUpdate, setLastUpdate] = useState<string>(new Date().toLocaleString('fa-IR'));
@@ -108,19 +108,11 @@ const TelegramMock: React.FC = () => {
     // Footer Buttons Logic
     if ((finalButtons.length > 0 || text.includes("منوی اصلی")) && !text.includes("پنل مدیریت")) {
         const footerRow: InlineButton[] = [];
-        
-        // Channel Logic (Dynamic)
-        if (menuConfig["channel"] && menuConfig["channel"].active) {
-             footerRow.push({ text: menuConfig["channel"].label, url: menuConfig["channel"].url });
-        }
-
+        footerRow.push({ text: "📢 کانال ما", url: channelUrl });
         if (sponsorConfig.name && sponsorConfig.url) {
             footerRow.push({ text: `⭐ ${sponsorConfig.name}`, url: sponsorConfig.url });
         }
-        
-        if (footerRow.length > 0) {
-            finalButtons.push(footerRow);
-        }
+        finalButtons.push(footerRow);
     }
 
     setMessages(prev => [...prev, {
@@ -163,6 +155,10 @@ const TelegramMock: React.FC = () => {
     const btnText = btn.text;
 
     // Handle internal links marked as callback for simulation logic (legacy)
+    if (callbackData === 'link_channel') {
+        window.open(channelUrl, '_blank');
+        return;
+    }
     if (callbackData === 'link_sponsor') {
         window.open(sponsorConfig.url || '#', '_blank');
         return;

@@ -19,7 +19,6 @@ DEFAULT_CONFIG = {
     "mobile_webapp": {"label": "📱 قیمت موبایل (سایت)", "url": "https://www.mobile.ir/phones/prices.aspx", "active": True, "type": "webapp"},
     "mobile_list": {"label": "📲 لیست موبایل (ربات)", "active": True, "type": "internal"},
     "search": {"label": "🔍 جستجو", "active": True, "type": "internal"},
-    "channel": {"label": "📢 کانال ما", "url": "https://t.me/CarPrice_Channel", "active": True, "type": "link"},
     "support": {"label": "📞 پشتیبانی", "active": True, "type": "dynamic"}
 }
 
@@ -67,7 +66,7 @@ def load_data():
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 d = json.load(f)
                 if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
-                # Merge defaults
+                # Merge new defaults if missing
                 for k, v in DEFAULT_CONFIG.items():
                     if k not in d["menu_config"]: d["menu_config"][k] = v
                 return d
@@ -121,7 +120,7 @@ def get_main_menu(user_id):
     if c["estimate"]["active"]: row2.append(InlineKeyboardButton(c["estimate"]["label"], callback_data="menu_estimate"))
     if row2: keyboard.append(row2)
 
-    # Row 3: Mobile
+    # Row 3: Mobile Section
     row3 = []
     if c.get("mobile_webapp", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_webapp"]["label"], web_app=WebAppInfo(url=c["mobile_webapp"]["url"])))
     if c.get("mobile_list", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_list"]["label"], callback_data="menu_mobile_list"))
@@ -141,18 +140,12 @@ def get_main_menu(user_id):
 
     if is_admin(user_id): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
     
-    # Footer: Channel & Sponsor
-    footer = []
-    # Channel Config Check
-    if c.get("channel", {}).get("active"):
-        footer.append(InlineKeyboardButton(c["channel"]["label"], url=c["channel"]["url"]))
-    
-    # Sponsor Config Check
+    # Sponsor Button
     sponsor = d.get("sponsor", {})
+    footer = [InlineKeyboardButton("📢 کانال ما", url="https://t.me/CarPrice_Channel")]
     if sponsor.get("name") and sponsor.get("url"):
         footer.append(InlineKeyboardButton(f"⭐ {sponsor['name']}", url=sponsor['url']))
-        
-    if footer: keyboard.append(footer)
+    keyboard.append(footer)
     
     return InlineKeyboardMarkup(keyboard)
 
@@ -505,11 +498,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state_info["state"] == STATE_ADMIN_SET_SUPPORT:
         d = load_data()
         mode = "link" if text.startswith("http") else "text"
+        
+        # Auto convert @username to https://t.me/username
         if text.startswith("@"):
             text = f"https://t.me/{text.replace('@', '')}"
             mode = "link"
+
         d["support_config"] = {"mode": mode, "value": text}
         save_data(d)
+        
         type_msg = "لینک" if mode == "link" else "متن"
         await update.message.reply_text(f"✅ پشتیبانی تنظیم شد به صورت **{type_msg}**.\\nمقدار: {text}", parse_mode='Markdown')
         reset_state(user_id)

@@ -472,8 +472,7 @@ DEFAULT_CONFIG = {
     "mobile_webapp": {"label": "📱 قیمت موبایل (سایت)", "url": "https://www.mobile.ir/phones/prices.aspx", "active": True, "type": "webapp"},
     "mobile_list": {"label": "📲 لیست موبایل (ربات)", "active": True, "type": "internal"},
     "search": {"label": "🔍 جستجو", "active": True, "type": "internal"},
-    "channel": {"label": "📢 کانال ما", "url": "https://t.me/CarPrice_Channel", "active": True, "type": "link"},
-    "support": {"label": "📞 پشتیبانی", "active": True, "type": "dynamic"}
+    "support": {"label": "📞 پشتیبانی", "active": True, "type": "internal"}
 }
 
 # Load Database
@@ -596,18 +595,12 @@ def get_main_menu(user_id):
 
     if is_admin(user_id): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
     
-    # Footer: Channel & Sponsor
-    footer = []
-    # Channel Config Check
-    if c.get("channel", {}).get("active"):
-        footer.append(InlineKeyboardButton(c["channel"]["label"], url=c["channel"]["url"]))
-    
-    # Sponsor Config Check
+    # Sponsor Button
     sponsor = d.get("sponsor", {})
+    footer = [InlineKeyboardButton("📢 کانال ما", url="https://t.me/CarPrice_Channel")]
     if sponsor.get("name") and sponsor.get("url"):
         footer.append(InlineKeyboardButton(f"⭐ {sponsor['name']}", url=sponsor['url']))
-        
-    if footer: keyboard.append(footer)
+    keyboard.append(footer)
     
     return InlineKeyboardMarkup(keyboard)
 
