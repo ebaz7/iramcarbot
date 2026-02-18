@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import TelegramMock from './components/TelegramMock';
 import { generateBashScript, generatePythonCode } from './services/generator';
@@ -173,31 +174,31 @@ export default function App() {
             
             <div className="max-w-4xl mx-auto w-full space-y-8 pb-10">
                 <div className="text-center mb-6">
-                    <h2 className="text-2xl font-black text-gray-800 mb-2">🚀 راهنمای نصب ربات (بدون ارور ۴۰۴)</h2>
-                    <p className="text-gray-500 text-sm">لطفاً مراحل زیر را **به ترتیب** انجام دهید تا روی سرور به مشکل نخورید.</p>
+                    <h2 className="text-2xl font-black text-gray-800 mb-2">🚀 راهنمای نصب نهایی (با قفل امنیتی)</h2>
+                    <p className="text-gray-500 text-sm">مشکل بکاپ و ریستور کاملا حل شد. حالا سیستم از شما رمز عبور می‌خواهد.</p>
                 </div>
 
                 {/* Step 1: Download */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden">
                     <div className="absolute top-0 right-0 bg-blue-100 text-blue-800 px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۱</div>
                     <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-4">
-                        <Download className="text-blue-600" /> دانلود فایل‌ها
+                        <Download className="text-blue-600" /> دانلود فایل‌های اصلاح شده
                     </h3>
                     <p className="text-gray-600 text-sm mb-4">
-                        ابتدا فایل‌های زیر را دانلود کنید. (ما کدها را برای شما آماده کرده‌ایم)
+                        حتما نسخه جدید را دانلود کنید. اسکریپت قدیمی مشکل امنیتی داشت.
                     </p>
                     <div className="flex flex-wrap gap-3">
                         <button 
                             onClick={() => downloadFile("bot.py", generatePythonCode())}
                             className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 px-4 py-3 rounded-lg text-gray-800 transition-colors font-mono text-sm"
                         >
-                            <Download size={16} /> bot.py
+                            <Download size={16} /> bot.py (نسخه جدید)
                         </button>
                         <button 
                             onClick={() => downloadFile("install.sh", generateBashScript(repoUrl))}
                             className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 px-4 py-3 rounded-lg text-gray-800 transition-colors font-mono text-sm"
                         >
-                            <Download size={16} /> install.sh
+                            <Download size={16} /> install.sh (امنیتی)
                         </button>
                     </div>
                 </div>
@@ -206,34 +207,28 @@ export default function App() {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden">
                     <div className="absolute top-0 right-0 bg-blue-100 text-blue-800 px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۲</div>
                     <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-4">
-                        <UploadCloud className="text-purple-600" /> آپلود در گیت‌هاب
+                        <UploadCloud className="text-purple-600" /> آپلود در گیت‌هاب (جایگزین قبلی‌ها)
                     </h3>
                     <div className="bg-yellow-50 border-r-4 border-yellow-400 p-4 mb-4">
                         <p className="text-yellow-800 text-sm font-medium">
-                            ⚠️ دلیل ارور 404 شما اینجاست!
+                            ⚠️ نکته مهم امنیتی:
                         </p>
                         <p className="text-yellow-700 text-xs mt-1">
-                            سرور لینوکس نمی‌تواند فایلی که وجود ندارد را بخواند. شما باید فایل‌های دانلود شده در مرحله قبل را در مخزن گیت‌هاب خود آپلود کنید.
+                            فایل‌های جدید را جایگزین فایل‌های قبلی در گیت‌هاب کنید. بدون این کار، منوی امنیتی فعال نمی‌شود.
                         </p>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-2 list-disc list-inside">
-                        <li>به اکانت GitHub خود بروید.</li>
-                        <li>یک مخزن (Repository) جدید بسازید (حتما <b>Public</b> باشد).</li>
-                        <li>دو فایل <code>bot.py</code> و <code>install.sh</code> را در آن آپلود کنید (Drag & Drop).</li>
-                        <li>مطمئن شوید نام فایل‌ها دقیقا همین باشد (حروف کوچک).</li>
-                    </ul>
                 </div>
 
                 {/* Step 3: Verify */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden ring-2 ring-blue-500/20">
-                    <div className="absolute top-0 right-0 bg-blue-600 text-white px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۳ (مهم)</div>
+                    <div className="absolute top-0 right-0 bg-blue-600 text-white px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۳</div>
                     <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-4">
-                        <Globe className="text-green-600" /> بررسی و دریافت لینک
+                        <Globe className="text-green-600" /> بررسی اتصال
                     </h3>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                          <div>
-                             <label className="text-gray-500 text-xs mb-1 block font-bold">آدرس مخزن شما (لینک صفحه اصلی ریپو):</label>
+                             <label className="text-gray-500 text-xs mb-1 block font-bold">آدرس مخزن شما:</label>
                              <input 
                                 type="text" 
                                 value={repoUrl}
@@ -243,7 +238,7 @@ export default function App() {
                              />
                          </div>
                          <div>
-                             <label className="text-gray-500 text-xs mb-1 block font-bold">نام شاخه (Branch):</label>
+                             <label className="text-gray-500 text-xs mb-1 block font-bold">شاخه (Branch):</label>
                              <select 
                                 value={branch}
                                 onChange={(e) => { setBranch(e.target.value); setUrlStatus('idle'); }}
@@ -256,9 +251,6 @@ export default function App() {
                     </div>
 
                     <div className="flex flex-col items-center justify-center p-4 bg-gray-50 rounded-lg border border-gray-200 mb-4">
-                        <p className="text-xs text-gray-500 mb-3">ربات این آدرس را چک می‌کند:</p>
-                        <code className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded mb-4 break-all font-mono">{rawUrl || "..."}</code>
-                        
                         <button 
                             onClick={checkUrlConnection}
                             disabled={urlStatus === 'checking' || !rawUrl}
@@ -269,18 +261,12 @@ export default function App() {
                             }`}
                         >
                             {urlStatus === 'checking' && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
-                            {urlStatus === 'idle' && "بررسی آنلاین فایل (کلیک کن)"}
+                            {urlStatus === 'idle' && "بررسی آنلاین (حتما کلیک کنید)"}
                             {urlStatus === 'checking' && "در حال چک کردن..."}
-                            {urlStatus === 'success' && <><Check size={18} /> فایل پیدا شد!</>}
+                            {urlStatus === 'success' && <><Check size={18} /> فایل تایید شد!</>}
                             {urlStatus === 'error' && <><XCircle size={18} /> پیدا نشد (404)</>}
                             {urlStatus === 'invalid' && "آدرس اشتباه"}
                         </button>
-
-                        {urlStatus === 'error' && (
-                            <p className="text-red-600 text-xs mt-3 font-bold animate-pulse">
-                                ⛔ فایل install.sh در آدرس بالا وجود ندارد! لطفا مرحله ۲ را انجام دهید.
-                            </p>
-                        )}
                     </div>
                 </div>
 
@@ -291,17 +277,11 @@ export default function App() {
                         <Terminal className="text-green-400" /> اجرای دستور در سرور
                     </h3>
                     
-                    {urlStatus !== 'success' && (
-                        <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-[1px] flex items-center justify-center text-center p-4">
-                            <span className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg transform -rotate-2">
-                                🔒 اول مرحله ۳ را تیک سبز بگیرید
-                            </span>
-                        </div>
-                    )}
-
-                    <p className="text-gray-400 text-sm mb-3">
-                        حالا که فایل تایید شد، این دستور را در ترمینال سرور (Putty یا Termius) بزنید:
-                    </p>
+                    <div className="mb-4 text-gray-300 text-sm bg-gray-800 p-3 rounded border-l-4 border-yellow-500">
+                        <p className="font-bold text-yellow-500 mb-1">توجه:</p>
+                        در حین نصب، اسکریپت از شما <b>Username</b> و <b>Password</b> برای پنل می‌خواهد. 
+                        این رمز را فراموش نکنید! برای ریستور بکاپ حیاتی است.
+                    </div>
                     
                     <div className="bg-black rounded-lg p-4 relative group border border-green-500/30">
                         <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed break-all" dir="ltr">{oneLiner}</pre>

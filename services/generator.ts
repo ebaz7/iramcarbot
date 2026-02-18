@@ -1,3 +1,4 @@
+
 import { CAR_DB, MOBILE_DB, YEARS, PAINT_CONDITIONS } from '../constants';
 
 // --- Bash Script Generator ---
@@ -123,10 +124,23 @@ function configure_bot_and_security() {
         echo ""
         
         if [ "\$P_PASS" == "\$P_PASS2" ] && [ ! -z "\$P_PASS" ]; then
+            # 1. Save locally for scripts
             echo "PANEL_USER=\"\$P_USER\"" > "\$SECRET_FILE"
             echo "PANEL_PASS=\"\$P_PASS\"" >> "\$SECRET_FILE"
             chmod 600 "\$SECRET_FILE"
-            echo -e "\${GREEN}✅ Security Credentials Saved!\${NC}"
+            
+            # 2. Inject into bot_data.json so backups carry the password!
+            if [ ! -f "bot_data.json" ]; then echo "{}" > bot_data.json; fi
+            
+            python3 -c "import json; 
+try:
+    with open('bot_data.json', 'r') as f: d = json.load(f)
+except: d = {}
+d['panel_user'] = '$P_USER'
+d['panel_pass'] = '$P_PASS'
+with open('bot_data.json', 'w') as f: json.dump(d, f)"
+            
+            echo -e "\${GREEN}✅ Security Credentials Saved & Injected into Database!\${NC}"
             break
         else
             echo -e "\${RED}❌ Passwords do not match. Try again.\${NC}"
@@ -175,44 +189,63 @@ function create_shortcut() {
 # --- Backup/Restore ---
 
 function do_restore() {
-    echo -e "\${BLUE}📥 Restore Database\${NC}"
+    echo -e "\${BLUE}📥 Restore Database (Secure)\${NC}"
+    echo "------------------------------------------------"
     
-    # 1. CHECK SECURITY
-    if [ ! -f "\$SECRET_FILE" ]; then
-        echo -e "\${RED}❌ Security file missing. Please Reinstall to set a password.\${NC}"
+    read -p "Enter path to backup file (e.g. /root/backup.json): " BACKUP_PATH
+    
+    if [ ! -f "\$BACKUP_PATH" ]; then
+        echo -e "\${RED}❌ File not found at \$BACKUP_PATH\${NC}"
         pause; return
     fi
     
-    echo -e "\${YELLOW}🔒 Protected Area: Please enter your Panel Password.\${NC}"
-    source "\$SECRET_FILE"
+    echo -e "\${YELLOW}🔐 This backup file is protected.\${NC}"
+    echo "Please enter the Username and Password that were set when this backup was created."
     
-    read -p "Username: " INPUT_USER
-    read -s -p "Password: " INPUT_PASS
+    read -p "Backup Username: " INPUT_USER
+    read -s -p "Backup Password: " INPUT_PASS
     echo ""
     
-    if [ "\$INPUT_USER" != "\$PANEL_USER" ] || [ "\$INPUT_PASS" != "\$PANEL_PASS" ]; then
-        echo -e "\${RED}❌ WRONG PASSWORD. Access Denied.\${NC}"
-        pause; return
+    # Verify using Python to read the JSON file safely without jq
+    VERIFY_RESULT=\$(python3 -c "
+import json, sys
+try:
+    with open('\$BACKUP_PATH', 'r') as f:
+        d = json.load(f)
+        real_user = d.get('panel_user', '')
+        real_pass = d.get('panel_pass', '')
+        if real_user == '$INPUT_USER' and real_pass == '$INPUT_PASS':
+            print('OK')
+        else:
+            print('FAIL')
+except Exception as e:
+    print('ERROR')
+")
+
+    if [ "\$VERIFY_RESULT" == "OK" ]; then
+        echo -e "\${GREEN}✅ Password Accepted!\${NC}"
+        
+        echo "Stopping bot..."
+        sudo systemctl stop \$SERVICE_NAME
+        
+        cp "\$BACKUP_PATH" "\$INSTALL_DIR/bot_data.json"
+        
+        # Also update the local secret file to match the new restored data
+        echo "PANEL_USER=\"\$INPUT_USER\"" > "\$SECRET_FILE"
+        echo "PANEL_PASS=\"\$INPUT_PASS\"" >> "\$SECRET_FILE"
+        chmod 600 "\$SECRET_FILE"
+        
+        # Fix permissions
+        CURRENT_USER=\$(whoami)
+        sudo chown \$CURRENT_USER:\$CURRENT_USER "\$INSTALL_DIR/bot_data.json"
+        
+        echo "Starting bot..."
+        sudo systemctl start \$SERVICE_NAME
+        echo -e "\${GREEN}🎉 Restore Successful.\${NC}"
+    else
+        echo -e "\${RED}❌ ACCESS DENIED: Username or Password is incorrect for this backup file.\${NC}"
+        echo "Restore cancelled."
     fi
-    
-    # 2. PERFORM RESTORE
-    read -p "Enter path to backup file: " BACKUP_PATH
-    if [ ! -f "\$BACKUP_PATH" ]; then
-        echo -e "\${RED}❌ File not found.\${NC}"; pause; return
-    fi
-    
-    echo "Stopping bot..."
-    sudo systemctl stop \$SERVICE_NAME
-    
-    cp "\$BACKUP_PATH" "\$INSTALL_DIR/bot_data.json"
-    
-    # Fix permissions
-    CURRENT_USER=\$(whoami)
-    sudo chown \$CURRENT_USER:\$CURRENT_USER "\$INSTALL_DIR/bot_data.json"
-    
-    echo "Starting bot..."
-    sudo systemctl start \$SERVICE_NAME
-    echo -e "\${GREEN}✅ Restore Successful.\${NC}"
     pause
 }
 
@@ -250,7 +283,7 @@ function do_backup_menu() {
                 mkdir -p "\$HOME/carbot_backups"
                 TS=\$(date +"%Y%m%d_%H%M")
                 cp "\$INSTALL_DIR/bot_data.json" "\$HOME/carbot_backups/backup_\$TS.json"
-                echo "Saved."; pause ;;
+                echo "Saved to \$HOME/carbot_backups/backup_\$TS.json"; pause ;;
             3)
                 read -p "Interval (hours) [0 to disable]: " intr
                 python3 -c "import json; d=json.load(open('\$INSTALL_DIR/bot_data.json')); d['backup_interval']=int('\$intr'); json.dump(d, open('\$INSTALL_DIR/bot_data.json','w'))"
@@ -297,7 +330,7 @@ while true; do
     echo "3) Restart Bot"
     echo "4) Logs"
     echo "5) Backup Manager"
-    echo "6) Restore Data (Requires Password)"
+    echo "6) Restore Data (Secure)"
     echo "7) Uninstall"
     echo "0) Exit"
     read -p "Select: " main_opt
@@ -380,7 +413,7 @@ STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 
 # --- Data Management ---
 def load_data():
-    default_data = {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG, "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."}}
+    default_data = {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG, "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."}, "panel_user": "", "panel_pass": ""}
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
