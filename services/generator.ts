@@ -42,7 +42,17 @@ function setup_credentials() {
     echo "This password protects the 'Restore' function and menu access."
     echo ""
     
+    # Create directory if not exists
     mkdir -p "\$INSTALL_DIR"
+
+    # If secret file already exists, ask to keep or reset
+    if [ -f "\$SECRET_FILE" ]; then
+        echo -e "\${YELLOW}⚠️  A password is already set.\${NC}"
+        read -p "Do you want to RESET the password? (y/n): " reset_pass
+        if [[ "\$reset_pass" != "y" ]]; then
+            return
+        fi
+    fi
 
     while true; do
         read -p "Enter Manager Username: " NEW_USER
@@ -140,11 +150,6 @@ function setup_environment() {
 function configure_bot() {
     cd "\$INSTALL_DIR"
     
-    # Force credentials setup during install/config
-    if [ ! -f "\$SECRET_FILE" ]; then
-        setup_credentials
-    fi
-    
     echo -e "\n\${BLUE}⚙️  Bot Configuration \${NC}"
     
     if grep -q "REPLACE_ME_TOKEN" bot.py; then
@@ -223,7 +228,6 @@ function do_restore() {
     fi
 
     # --- CRITICAL SECURITY CHECK ---
-    # Restore requires Authentication of the CURRENT panel owner.
     echo -e "\\n\${YELLOW}🔒 RESTORE PROTECTED: Enter Current Panel Password\${NC}"
     
     if [ -f "\$SECRET_FILE" ]; then
@@ -237,7 +241,6 @@ function do_restore() {
     
     if [ "\$CHECK_PASS" != "\$PANEL_PASS" ]; then
         echo -e "\${RED}❌ WRONG PASSWORD. Restore Blocked.\${NC}"
-        echo "You must authenticate with the current system password to overwrite data."
         pause; return
     fi
     
@@ -257,9 +260,7 @@ function do_restore() {
 }
 
 function send_telegram_manual_backup() {
-     # Robust extraction of credentials
      BOT_TOKEN=\$(grep "TOKEN =" "\$INSTALL_DIR/bot.py" | awk -F"'" '{print \$2}')
-     # Filter for numeric ID only
      ADMIN_ID=\$(grep "OWNER_ID =" "\$INSTALL_DIR/bot.py" | grep -o '[0-9]*' | head -n 1)
      
      if [[ -z "\$BOT_TOKEN" || "\$BOT_TOKEN" == "REPLACE_ME_TOKEN" ]]; then
@@ -317,6 +318,10 @@ function do_backup() {
 # --- Main Menu Actions ---
 
 function do_install() {
+    # >>>>> CRITICAL CHANGE: Password setup is now the FIRST STEP <<<<<
+    setup_credentials
+    # ----------------------------------------------------------------
+    
     install_dependencies
     setup_environment
     if [ $? -eq 0 ]; then
