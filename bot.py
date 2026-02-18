@@ -1,7 +1,9 @@
+
 import logging
 import json
 import os
 import datetime
+import shutil
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
@@ -62,21 +64,50 @@ STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 
 # --- Data Management ---
 def load_data():
+    default_data = {
+        "backup_interval": 0, 
+        "users": [], 
+        "admins": [], 
+        "sponsor": {}, 
+        "menu_config": DEFAULT_CONFIG, 
+        "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."},
+        "panel_user": "",
+        "panel_pass": ""
+    }
+    
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 d = json.load(f)
+                # Ensure structure is valid
                 if "menu_config" not in d: d["menu_config"] = DEFAULT_CONFIG
-                # Merge defaults
                 for k, v in DEFAULT_CONFIG.items():
                     if k not in d["menu_config"]: d["menu_config"][k] = v
                 return d
-        except: pass
-    return {"backup_interval": 0, "users": [], "admins": [], "sponsor": {}, "menu_config": DEFAULT_CONFIG, "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."}}
+        except json.JSONDecodeError:
+            # Handle corrupted file
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            corrupt_filename = f"{DATA_FILE}.corrupt.{timestamp}"
+            try:
+                shutil.copy(DATA_FILE, corrupt_filename)
+                logger.error(f"❌ Data file corrupted! Renamed to {corrupt_filename} and creating new DB.")
+            except: pass
+            return default_data
+        except Exception as e:
+            logger.error(f"❌ Error loading data: {e}")
+            return default_data
+            
+    return default_data
 
 def save_data(data):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    try:
+        # Write to temp file first to prevent corruption during write
+        temp_file = f"{DATA_FILE}.tmp"
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        shutil.move(temp_file, DATA_FILE)
+    except Exception as e:
+        logger.error(f"❌ Error saving data: {e}")
 
 def register_user(user_id):
     d = load_data()
@@ -109,7 +140,7 @@ def get_main_menu(user_id):
     
     keyboard = []
     
-    # Row 1: Web Apps (Cars)
+    # Row 1: Web Apps
     row1 = []
     if c["calc"]["active"]: row1.append(InlineKeyboardButton(c["calc"]["label"], web_app=WebAppInfo(url=c["calc"]["url"])))
     if c["market"]["active"]: row1.append(InlineKeyboardButton(c["market"]["label"], web_app=WebAppInfo(url=c["market"]["url"])))

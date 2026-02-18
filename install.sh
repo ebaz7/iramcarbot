@@ -1,13 +1,16 @@
 #!/bin/bash
 
 # ==========================================
-# 🚗 Iran Car Bot Manager - SECURE EDITION
+# 🚗 Iran Car Bot Manager - SECURE
 # ==========================================
 
 # Configuration
 INSTALL_DIR="$HOME/carbot"
 SERVICE_NAME="carbot"
-REPO_URL="https://github.com/ebaz7/iramcarbot"
+# This will be replaced by the user's specific URL if they copy from web app, 
+# otherwise default to a placeholder that needs changing or general repo.
+# Since this file is static in the project, we put a placeholder or generic.
+REPO_URL="https://github.com/ebaz7/iramcarbot" 
 DATA_FILE="bot_data.json"
 
 # Colors
@@ -30,72 +33,88 @@ function check_root() {
     fi
 }
 
-# --- Installation Steps ---
-
 function install_dependencies() {
-    echo -e "${BLUE}📦 Step 1: Installing Dependencies...${NC}"
+    echo -e "${BLUE}📦 Installing System Dependencies...${NC}"
     check_root
     sudo apt-get update
     sudo apt-get install -y python3 python3-pip python3-venv git curl
 }
 
 function setup_environment() {
-    echo -e "${BLUE}📂 Step 2: Setting up Files...${NC}"
+    cd "$HOME" || exit 1
+
+    echo -e "${BLUE}📂 Setting up Directory: $INSTALL_DIR ${NC}"
     
-    # Clean install logic
-    if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Cleaning old directory...${NC}"
-        sudo systemctl stop $SERVICE_NAME 2>/dev/null
-        # Safety backup
-        if [ -f "$INSTALL_DIR/$DATA_FILE" ]; then
-            cp "$INSTALL_DIR/$DATA_FILE" "$HOME/bot_data_safety_backup.json"
-        fi
+    # Logic to fix "bot.py not found" error:
+    # If directory exists but .git is missing, it's corrupt/empty. Remove it.
+    if [ -d "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR/.git" ]; then
+        echo -e "${YELLOW}⚠️  Found corrupt or empty directory. Cleaning up...${NC}"
+        rm -rf "$INSTALL_DIR"
     fi
 
-    # Clone
-    if [ -d "$INSTALL_DIR" ]; then
+    # Clone or Pull
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        echo -e "${GREEN}🔄 Repository exists. Pulling latest changes...${NC}"
         cd "$INSTALL_DIR"
         git reset --hard
         git pull
     else
+        echo -e "${GREEN}⬇️  Cloning repository from $REPO_URL...${NC}"
         git clone "$REPO_URL" "$INSTALL_DIR"
+        
+        if [ ! -d "$INSTALL_DIR" ]; then
+             echo -e "${RED}❌ Error: Git clone failed. Directory not created.${NC}"
+             pause
+             return 1
+        fi
+        
         cd "$INSTALL_DIR"
     fi
 
+    # Verify download
     if [ ! -f "bot.py" ]; then
-        echo -e "${RED}❌ Error: bot.py missing. Check repo URL.${NC}"
-        exit 1
+        echo -e "${RED}❌ Critical Error: bot.py still not found after cloning! ${NC}"
+        echo "Please check your GitHub repository content."
+        echo "Repo URL: $REPO_URL"
+        pause
+        return 1
     fi
 
-    # Venv
+    # Virtual Env
     if [ ! -d "venv" ]; then
+        echo -e "${GREEN}🐍 Creating Python Virtual Environment...${NC}"
         python3 -m venv venv
     fi
     
     source venv/bin/activate
+    
+    echo -e "${GREEN}📚 Installing Python Libraries...${NC}"
     pip install --upgrade pip
     pip install python-telegram-bot pandas openpyxl jdatetime
 }
 
-function configure_bot_and_security() {
-    echo -e "\n${BLUE}⚙️  Step 3: Configuration & Security (MANDATORY)${NC}"
+function configure_bot() {
+    cd "$INSTALL_DIR"
+    
+    echo -e "\n${BLUE}⚙️  Bot Configuration ${NC}"
     echo "------------------------------------------------"
     
-    # 1. Bot Token
-    CUR_TOKEN=$(grep "TOKEN =" bot.py | awk -F"'" '{print $2}')
-    if [[ "$CUR_TOKEN" == "REPLACE_ME_TOKEN" ]]; then
-        echo -e "${YELLOW}👉 Telegram Config:${NC}"
-        read -p "Enter Bot Token: " BOT_TOKEN
-        read -p "Enter Admin ID: " ADMIN_ID
+    # 1. Telegram Token Setup
+    if grep -q "REPLACE_ME_TOKEN" bot.py; then
+        read -p "Enter Telegram Bot Token: " BOT_TOKEN
+        read -p "Enter Admin Numeric ID: " ADMIN_ID
+        
+        # Replace in bot.py using sed
         sed -i "s/REPLACE_ME_TOKEN/$BOT_TOKEN/g" bot.py
         sed -i "s/OWNER_ID = 0/OWNER_ID = $ADMIN_ID/g" bot.py
+    else
+        echo -e "${GREEN}Telegram Token already configured.${NC}"
     fi
 
-    # 2. SECURITY CREDENTIALS (THE REQUESTED FEATURE)
-    echo -e "\n${YELLOW}🔐 SECURE PANEL SETUP${NC}"
-    echo "You MUST set a Username and Password. This will be locked into the backup file."
-    echo "If you move this backup to another server, you will need this password to restore it."
-    echo ""
+    # 2. SECURITY SETUP (MANDATORY)
+    echo -e "\n${YELLOW}🔐 PANEL SECURITY SETUP (REQUIRED)${NC}"
+    echo "You MUST set a Username and Password. This will be required to RESTORE backups later."
+    echo "------------------------------------------------"
     
     while true; do
         read -p "Set Panel Username: " P_USER
@@ -105,40 +124,46 @@ function configure_bot_and_security() {
         echo ""
         
         if [ "$P_PASS" == "$P_PASS2" ] && [ ! -z "$P_PASS" ]; then
-            # Ensure JSON file exists
-            if [ ! -f "$DATA_FILE" ]; then echo "{}" > "$DATA_FILE"; fi
-            
-            # Inject credentials into JSON using Python
-            python3 -c "import json; 
-try:
-    with open('$DATA_FILE', 'r') as f: d = json.load(f)
-except: d = {}
-d['panel_user'] = '$P_USER'
-d['panel_pass'] = '$P_PASS'
-with open('$DATA_FILE', 'w') as f: json.dump(d, f, indent=4)"
-            
-            echo -e "${GREEN}✅ Security Credentials injected into Database!${NC}"
+            # Inject into JSON safely using Python
+            # We create/update bot_data.json immediately with credentials
+            python3 -c "
+import json, os
+data = {}
+if os.path.exists('$DATA_FILE'):
+    try:
+        with open('$DATA_FILE', 'r') as f: data = json.load(f)
+    except: pass
+
+data['panel_user'] = '$P_USER'
+data['panel_pass'] = '$P_PASS'
+
+with open('$DATA_FILE', 'w') as f:
+    json.dump(data, f, indent=4)
+"
+            echo -e "${GREEN}✅ Security credentials saved to database.${NC}"
             break
         else
             echo -e "${RED}❌ Passwords do not match. Try again.${NC}"
         fi
     done
+    
+    echo "------------------------------------------------"
 }
 
-function setup_service_final() {
-    echo -e "\n${BLUE}🤖 Step 4: Finalizing...${NC}"
+function setup_service() {
+    echo -e "${BLUE}🤖 Setting up Systemd Service...${NC}"
     
     SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
     CURRENT_USER=$(whoami)
     PYTHON_EXEC="$INSTALL_DIR/venv/bin/python"
-
-    # Fix Permissions (CRITICAL FOR RESTORE)
+    
+    # FIX: Ensure user owns the directory before starting service
     sudo chown -R $CURRENT_USER:$CURRENT_USER "$INSTALL_DIR"
-    sudo chmod -R 755 "$INSTALL_DIR"
 
+    # Create Service File
     sudo bash -c "cat > $SERVICE_FILE" <<EOL
 [Unit]
-Description=Car Bot Service
+Description=Iran Car Price Bot Manager
 After=network.target
 
 [Service]
@@ -156,117 +181,166 @@ EOL
     sudo systemctl enable $SERVICE_NAME
     sudo systemctl restart $SERVICE_NAME
     
-    echo -e "${GREEN}✅ Service Started!${NC}"
+    echo -e "${GREEN}✅ Service started! ${NC}"
 }
 
 function create_shortcut() {
+    echo -e "${BLUE}🔗 Creating global command 'carbot'...${NC}"
     cp "$0" "$INSTALL_DIR/manager.sh"
     chmod +x "$INSTALL_DIR/manager.sh"
     sudo ln -sf "$INSTALL_DIR/manager.sh" /usr/local/bin/carbot
+    echo -e "${GREEN}✅ Done! You can now type 'carbot' anywhere to open this menu.${NC}"
 }
 
-# --- Restore Logic (STRICT SECURITY) ---
+# --- Restore Function (SECURE) ---
 
 function do_restore() {
-    echo -e "${BLUE}📥 Secure Restore${NC}"
-    echo "------------------------------------------------"
+    echo -e "${BLUE}📥 SECURE RESTORE ${NC}"
+    echo -e "${YELLOW}⚠️  This will overwrite current data!${NC}"
     
-    read -p "Enter full path to backup file (e.g. /root/backup.json): " BACKUP_PATH
+    # 1. Get File Path
+    read -p "Enter full path to backup file: " BACKUP_PATH
     
     if [ ! -f "$BACKUP_PATH" ]; then
-        echo -e "${RED}❌ File not found!${NC}"
+        echo -e "${RED}❌ File not found.${NC}"
         pause; return
     fi
     
-    echo -e "${YELLOW}🔐 This backup is protected. Enter credentials to unlock:${NC}"
+    # 2. Security Check (Read credentials FROM THE BACKUP FILE)
+    echo -e "\n${YELLOW}🔐 Enter credentials for the BACKUP file:${NC}"
     read -p "Backup Username: " IN_USER
     read -s -p "Backup Password: " IN_PASS
     echo ""
     
-    # Verify Credentials using Python
-    # This reads the backup file, checks panel_user/panel_pass vs input
-    RESULT=$(python3 -c "
-import json
+    # Verify using Python to read the JSON file safely
+    VERIFY=$(python3 -c "
+import json, sys
 try:
     with open('$BACKUP_PATH', 'r') as f:
-        data = json.load(f)
-        real_user = data.get('panel_user', '')
-        real_pass = data.get('panel_pass', '')
-        if real_user == '$IN_USER' and real_pass == '$IN_PASS':
-            print('PASS')
+        d = json.load(f)
+        if d.get('panel_user') == '$IN_USER' and d.get('panel_pass') == '$IN_PASS':
+            print('OK')
         else:
-            print('FAIL')
+            print('WRONG_PASS')
 except:
-    print('ERROR')
+    print('CORRUPT')
 ")
 
-    if [ "$RESULT" == "PASS" ]; then
-        echo -e "${GREEN}✅ Password Correct! Restoring...${NC}"
-        
-        # Stop service
-        sudo systemctl stop $SERVICE_NAME
-        
-        # Copy file
-        cp "$BACKUP_PATH" "$INSTALL_DIR/$DATA_FILE"
-        
-        # FIX PERMISSIONS (This fixes the 'bot not working' issue)
-        CURRENT_USER=$(whoami)
-        sudo chown $CURRENT_USER:$CURRENT_USER "$INSTALL_DIR/$DATA_FILE"
-        sudo chmod 644 "$INSTALL_DIR/$DATA_FILE"
-        
-        # Start service
-        sudo systemctl start $SERVICE_NAME
-        
-        echo -e "${GREEN}🎉 Restore Successful. Bot restarted.${NC}"
-    else
-        echo -e "${RED}❌ ACCESS DENIED: Wrong Username or Password.${NC}"
+    if [ "$VERIFY" == "WRONG_PASS" ]; then
+        echo -e "${RED}❌ ACCESS DENIED: Incorrect Username or Password for this backup.${NC}"
         echo "Restore aborted."
+        pause; return
+    elif [ "$VERIFY" == "CORRUPT" ]; then
+        echo -e "${RED}❌ Error: Backup file is corrupt or invalid JSON.${NC}"
+        pause; return
+    fi
+
+    # 3. Perform Restore
+    echo -e "${GREEN}✅ Credentials Verified. Restoring...${NC}"
+    
+    sudo systemctl stop $SERVICE_NAME
+    
+    cp "$BACKUP_PATH" "$INSTALL_DIR/$DATA_FILE"
+    
+    # 4. FIX PERMISSIONS (Crucial Fix)
+    CURRENT_USER=$(whoami)
+    echo "Fixing permissions for $CURRENT_USER..."
+    sudo chown $CURRENT_USER:$CURRENT_USER "$INSTALL_DIR/$DATA_FILE"
+    sudo chmod 644 "$INSTALL_DIR/$DATA_FILE"
+    
+    sudo systemctl start $SERVICE_NAME
+    
+    echo -e "${GREEN}✅ Restore Complete & Service Restarted.${NC}"
+    pause
+}
+
+
+# --- Backup Function ---
+
+function do_backup() {
+    BACKUP_DIR="$HOME/carbot_backups"
+    mkdir -p "$BACKUP_DIR"
+    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+    DEST="$BACKUP_DIR/backup_$TIMESTAMP.json"
+    
+    if [ -f "$INSTALL_DIR/bot_data.json" ]; then
+        cp "$INSTALL_DIR/bot_data.json" "$DEST"
+        echo -e "${GREEN}✅ Local Backup created at: $DEST${NC}"
+        
+        # Telegram Send Option
+        read -p "Send to Telegram Admin? (y/n): " snd
+        if [[ "$snd" == "y" ]]; then
+            # Extract info
+            BOT_TOKEN=$(grep "TOKEN =" "$INSTALL_DIR/bot.py" | cut -d "'" -f 2)
+            ADMIN_ID=$(grep "OWNER_ID =" "$INSTALL_DIR/bot.py" | awk -F'=' '{print $2}' | tr -d ' ')
+            curl -s -F chat_id="$ADMIN_ID" -F document=@"$DEST" -F caption="💾 Manual Backup" "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" > /dev/null
+            echo -e "${GREEN}Sent.${NC}"
+        fi
+    else
+        echo -e "${RED}No database found.${NC}"
     fi
     pause
 }
 
-function manual_backup() {
-    # Extract Admin ID
-    ADMIN_ID=$(python3 -c "import re; print(re.search(r\"OWNER_ID = (\d+)\", open('$INSTALL_DIR/bot.py').read()).group(1))" 2>/dev/null)
-    BOT_TOKEN=$(python3 -c "import re; print(re.search(r\"TOKEN = '(.*)'\", open('$INSTALL_DIR/bot.py').read()).group(1))" 2>/dev/null)
-    
-    echo "Sending backup to Admin ID: $ADMIN_ID"
-    curl -s -F chat_id="$ADMIN_ID" -F document=@"$INSTALL_DIR/$DATA_FILE" -F caption="💾 Manual Backup (Secure)" "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" > /dev/null
-    echo -e "${GREEN}✅ Sent.${NC}"
-    pause
-}
-
-# --- Main Logic ---
+# --- Menu Functions ---
 
 function do_install() {
+    echo -e "${BLUE}🚀 Starting Installation / Re-Installation...${NC}"
     install_dependencies
     setup_environment
-    configure_bot_and_security
-    setup_service_final
-    create_shortcut
-    echo -e "\n${GREEN}🎉 Installation Complete!${NC}"
+    if [ $? -eq 0 ]; then
+        configure_bot
+        setup_service
+        create_shortcut
+        echo -e "\n${GREEN}🎉 Installation Complete! Bot is running. ${NC}"
+    else
+        echo -e "\n${RED}❌ Installation Failed. ${NC}"
+    fi
     pause
 }
 
-# --- Menu Loop ---
+function do_update() {
+    if [ ! -d "$INSTALL_DIR" ]; then echo "Not installed."; pause; return; fi
+    cd "$INSTALL_DIR"
+    git reset --hard
+    git pull
+    sudo systemctl restart $SERVICE_NAME
+    echo "Updated."; pause
+}
+
+function do_logs() { journalctl -u $SERVICE_NAME -n 50 -f; }
+function do_restart() { sudo systemctl restart $SERVICE_NAME; echo "Done."; pause; }
+function do_stop() { sudo systemctl stop $SERVICE_NAME; echo "Done."; pause; }
+
+# --- Main Menu Loop ---
 
 while true; do
     clear
-    echo -e "${BLUE}=== 🚗 Iran Car Bot Manager (Secure) ===${NC}"
-    echo "1) Install / Re-install (Sets User/Pass)"
-    echo "2) Restore Backup (Requires Password)"
-    echo "3) Manual Backup to Telegram"
-    echo "4) Restart Bot"
-    echo "5) View Logs"
-    echo "0) Exit"
-    read -p "Select: " opt
-    
-    case $opt in
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${GREEN}      🚗 Iran Car Bot Manager      ${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "1) ${GREEN}Install / Reinstall${NC} (Set User/Pass)"
+    echo -e "2) Update Bot Code"
+    echo -e "3) View Logs"
+    echo -e "4) Restart Service"
+    echo -e "5) Stop Service"
+    echo -e "6) Backup Data"
+    echo -e "7) ${BLUE}Auto-Backup Settings${NC}"
+    echo -e "8) ${YELLOW}Restore Backup${NC} (Requires Pass)"
+    echo -e "0) Exit"
+    echo -e "${BLUE}========================================${NC}"
+    read -p "Select: " choice
+
+    case $choice in
         1) do_install ;;
-        2) do_restore ;;
-        3) manual_backup ;;
-        4) sudo systemctl restart $SERVICE_NAME; echo "Done."; pause ;;
-        5) journalctl -u $SERVICE_NAME -n 50 -f ;;
+        2) do_update ;;
+        3) do_logs ;;
+        4) do_restart ;;
+        5) do_stop ;;
+        6) do_backup ;;
+        7) echo "Feature in bot settings."; pause ;;
+        8) do_restore ;;
         0) exit 0 ;;
+        *) echo "Invalid."; pause ;;
     esac
 done
