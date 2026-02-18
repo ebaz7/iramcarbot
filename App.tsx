@@ -167,130 +167,87 @@ export default function App() {
         );
       case Tab.BASH:
         const rawUrl = getRawUrl(repoUrl, branch);
-        const oneLiner = rawUrl ? `bash <(curl -Ls ${rawUrl})` : "# آدرس گیت‌هاب معتبر نیست";
+        const bashCode = generateBashScript(repoUrl);
 
         return (
            <div className="h-full overflow-hidden flex flex-col p-4 md:p-6 overflow-y-auto bg-slate-50">
             
             <div className="max-w-4xl mx-auto w-full space-y-8 pb-10">
                 <div className="text-center mb-6">
-                    <h2 className="text-2xl font-black text-gray-800 mb-2">🚀 راهنمای نصب نهایی (با قفل امنیتی)</h2>
-                    <p className="text-gray-500 text-sm">مشکل بکاپ و ریستور کاملا حل شد. حالا سیستم از شما رمز عبور می‌خواهد.</p>
+                    <h2 className="text-2xl font-black text-red-600 mb-2">⚠️ تعمیر فوری ربات (نسخه جدید)</h2>
+                    <p className="text-gray-700 font-bold">برای حل مشکل ریستور، از کد زیر استفاده کنید.</p>
                 </div>
 
-                {/* Step 1: Download */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 bg-blue-100 text-blue-800 px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۱</div>
-                    <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-4">
-                        <Download className="text-blue-600" /> دانلود فایل‌های اصلاح شده
-                    </h3>
-                    <p className="text-gray-600 text-sm mb-4">
-                        حتما نسخه جدید را دانلود کنید. اسکریپت قدیمی مشکل امنیتی داشت.
+                {/* Step 1: Warning */}
+                <div className="bg-red-50 border-r-4 border-red-600 p-4 rounded shadow-sm">
+                    <div className="flex items-center gap-2 font-bold text-red-800 mb-2">
+                        <AlertTriangle /> توجه مهم
+                    </div>
+                    <p className="text-red-700 text-sm">
+                        لطفاً کد زیر را کپی کنید و جایگزین محتویات فایل <b>install.sh</b> در سرور خود کنید. 
+                        سپس دستور <code className="bg-red-100 px-1 rounded">bash install.sh</code> را اجرا کنید.
                     </p>
-                    <div className="flex flex-wrap gap-3">
-                        <button 
-                            onClick={() => downloadFile("bot.py", generatePythonCode())}
-                            className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 px-4 py-3 rounded-lg text-gray-800 transition-colors font-mono text-sm"
-                        >
-                            <Download size={16} /> bot.py (نسخه جدید)
-                        </button>
-                        <button 
-                            onClick={() => downloadFile("install.sh", generateBashScript(repoUrl))}
-                            className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 px-4 py-3 rounded-lg text-gray-800 transition-colors font-mono text-sm"
-                        >
-                            <Download size={16} /> install.sh (امنیتی)
-                        </button>
-                    </div>
                 </div>
 
-                {/* Step 2: Upload */}
+                {/* Step 2: Download & Copy */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 bg-blue-100 text-blue-800 px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۲</div>
+                    <div className="absolute top-0 right-0 bg-blue-100 text-blue-800 px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۱ (دریافت فایل)</div>
                     <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-4">
-                        <UploadCloud className="text-purple-600" /> آپلود در گیت‌هاب (جایگزین قبلی‌ها)
+                        <Download className="text-blue-600" /> روش اول: دانلود فایل
                     </h3>
-                    <div className="bg-yellow-50 border-r-4 border-yellow-400 p-4 mb-4">
-                        <p className="text-yellow-800 text-sm font-medium">
-                            ⚠️ نکته مهم امنیتی:
-                        </p>
-                        <p className="text-yellow-700 text-xs mt-1">
-                            فایل‌های جدید را جایگزین فایل‌های قبلی در گیت‌هاب کنید. بدون این کار، منوی امنیتی فعال نمی‌شود.
-                        </p>
-                    </div>
-                </div>
-
-                {/* Step 3: Verify */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 relative overflow-hidden ring-2 ring-blue-500/20">
-                    <div className="absolute top-0 right-0 bg-blue-600 text-white px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۳</div>
-                    <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-4">
-                        <Globe className="text-green-600" /> بررسی اتصال
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                         <div>
-                             <label className="text-gray-500 text-xs mb-1 block font-bold">آدرس مخزن شما:</label>
-                             <input 
-                                type="text" 
-                                value={repoUrl}
-                                onChange={(e) => { setRepoUrl(e.target.value); setUrlStatus('idle'); }}
-                                placeholder="https://github.com/username/repo"
-                                className="bg-gray-50 text-gray-800 text-sm px-3 py-3 rounded border border-gray-300 w-full focus:outline-none focus:border-blue-500 transition-colors font-mono ltr"
-                             />
-                         </div>
-                         <div>
-                             <label className="text-gray-500 text-xs mb-1 block font-bold">شاخه (Branch):</label>
-                             <select 
-                                value={branch}
-                                onChange={(e) => { setBranch(e.target.value); setUrlStatus('idle'); }}
-                                className="bg-gray-50 text-gray-800 text-sm px-3 py-3 rounded border border-gray-300 w-full focus:outline-none focus:border-blue-500 transition-colors"
-                             >
-                                 <option value="main">main</option>
-                                 <option value="master">master</option>
-                             </select>
-                         </div>
-                    </div>
-
-                    <div className="flex flex-col items-center justify-center p-4 bg-gray-50 rounded-lg border border-gray-200 mb-4">
+                    <div className="flex flex-wrap gap-3 mb-6">
                         <button 
-                            onClick={checkUrlConnection}
-                            disabled={urlStatus === 'checking' || !rawUrl}
-                            className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold text-sm transition-all shadow-md ${
-                                urlStatus === 'success' ? 'bg-green-500 text-white cursor-default' :
-                                urlStatus === 'error' ? 'bg-red-500 text-white' :
-                                'bg-blue-600 hover:bg-blue-700 text-white'
-                            }`}
+                            onClick={() => downloadFile("install.sh", bashCode)}
+                            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 px-6 py-4 rounded-lg text-white transition-colors font-bold text-sm shadow-lg w-full md:w-auto justify-center"
                         >
-                            {urlStatus === 'checking' && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
-                            {urlStatus === 'idle' && "بررسی آنلاین (حتما کلیک کنید)"}
-                            {urlStatus === 'checking' && "در حال چک کردن..."}
-                            {urlStatus === 'success' && <><Check size={18} /> فایل تایید شد!</>}
-                            {urlStatus === 'error' && <><XCircle size={18} /> پیدا نشد (404)</>}
-                            {urlStatus === 'invalid' && "آدرس اشتباه"}
+                            <Download size={20} /> دانلود install.sh (نسخه فیکس شده)
                         </button>
                     </div>
+
+                    <h3 className="flex items-center gap-2 font-bold text-lg text-gray-800 mb-2">
+                        <Copy className="text-purple-600" /> روش دوم: کپی کد (اگر دانلود نشد)
+                    </h3>
+                    <div className="bg-gray-800 rounded-lg overflow-hidden">
+                        <div className="bg-gray-700 p-2 flex justify-between items-center text-xs text-gray-300">
+                            <span>install.sh</span>
+                            <button 
+                                onClick={() => copyToClipboard(bashCode)}
+                                className="flex items-center gap-1 hover:text-white"
+                            >
+                                {copied ? <Check size={14} /> : <Copy size={14} />} کپی کامل کد
+                            </button>
+                        </div>
+                        <pre className="p-4 text-xs font-mono text-green-300 overflow-x-auto h-64 md:h-96" dir="ltr">
+                            {bashCode}
+                        </pre>
+                    </div>
                 </div>
 
-                {/* Step 4: Run */}
-                <div className={`bg-gray-900 rounded-xl shadow-xl border border-gray-700 p-6 relative overflow-hidden transition-all duration-500 ${urlStatus === 'success' ? 'opacity-100 grayscale-0' : 'opacity-50 grayscale'}`}>
-                    <div className="absolute top-0 right-0 bg-gray-700 text-white px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۴</div>
+                {/* Step 3: Run Manually */}
+                <div className="bg-gray-900 rounded-xl shadow-xl border border-gray-700 p-6 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 bg-green-600 text-white px-3 py-1 rounded-bl-xl font-bold text-sm">مرحله ۲ (اجرا)</div>
                     <h3 className="flex items-center gap-2 font-bold text-lg text-white mb-4">
-                        <Terminal className="text-green-400" /> اجرای دستور در سرور
+                        <Terminal className="text-green-400" /> نحوه اجرا روی سرور
                     </h3>
                     
-                    <div className="mb-4 text-gray-300 text-sm bg-gray-800 p-3 rounded border-l-4 border-yellow-500">
-                        <p className="font-bold text-yellow-500 mb-1">توجه:</p>
-                        در حین نصب، اسکریپت از شما <b>Username</b> و <b>Password</b> برای پنل می‌خواهد. 
-                        این رمز را فراموش نکنید! برای ریستور بکاپ حیاتی است.
-                    </div>
-                    
-                    <div className="bg-black rounded-lg p-4 relative group border border-green-500/30">
-                        <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed break-all" dir="ltr">{oneLiner}</pre>
-                        <button 
-                            onClick={() => copyToClipboard(oneLiner)}
-                            className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-all flex items-center gap-2"
-                        >
-                             {copied ? <Check size={16} /> : <Copy size={16} />}
-                        </button>
+                    <div className="space-y-4">
+                        <p className="text-gray-300 text-sm">
+                            ۱. فایل <b>install.sh</b> را در سرور بسازید و کد بالا را داخلش بریزید.
+                            <br/>
+                            ۲. دستور زیر را بزنید تا نصب شروع شود:
+                        </p>
+                        <div className="bg-black rounded-lg p-4 relative group border border-green-500/30">
+                            <pre className="text-green-400 font-mono text-sm" dir="ltr">bash install.sh</pre>
+                            <button 
+                                onClick={() => copyToClipboard("bash install.sh")}
+                                className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-all"
+                            >
+                                 {copied ? <Check size={16} /> : <Copy size={16} />}
+                            </button>
+                        </div>
+                        <p className="text-yellow-400 text-xs mt-2">
+                            * این اسکریپت به صورت خودکار پوشه‌های قبلی را تمیز می‌کند و از شما رمز جدید می‌خواهد.
+                        </p>
                     </div>
                 </div>
 
