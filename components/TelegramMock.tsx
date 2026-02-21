@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BotState, ChatMessage, InlineButton, EstimateData } from '../types';
+import { BotState, ChatMessage, InlineButton, EstimateData, CarDatabase, CarBrand } from '../types';
 import { CAR_DB, MOBILE_DB, YEARS, PAINT_CONDITIONS } from '../constants';
-import { Send, Menu, ArrowLeft, RefreshCw, ShieldAlert, Users, Megaphone, Star, Upload, FileSpreadsheet, Download, Clock, Filter, Phone, UserPlus, Globe, Database, Save, Settings } from 'lucide-react';
+import { Send, Menu, ArrowLeft, RefreshCw, ShieldAlert, Users, Megaphone, Star, Upload, FileSpreadsheet, Download, Clock, Filter, Phone, UserPlus, Globe, Database, Save, Settings, Sparkles } from 'lucide-react';
+import { GoogleGenAI } from "@google/genai";
 
 // Default Config similar to Python
 const DEFAULT_MENU_CONFIG: any = {
@@ -34,6 +35,8 @@ const TelegramMock: React.FC = () => {
   
   // Menu Config State (Dynamic)
   const [menuConfig, setMenuConfig] = useState(DEFAULT_MENU_CONFIG);
+  const [carDatabase, setCarDatabase] = useState<CarDatabase>(CAR_DB);
+  const [backupData, setBackupData] = useState<any>(null);
   
   const [tempAdminData, setTempAdminData] = useState<any>({});
 
@@ -225,6 +228,8 @@ const TelegramMock: React.FC = () => {
     if (callbackData === 'admin_home') {
         addBotMessage("🛠 **پنل مدیریت پیشرفته**\n\nگزینه مورد نظر را انتخاب کنید:", [
             [{ text: "⚙️ مدیریت دکمه‌ها و منو", callbackData: "admin_menus" }],
+            [{ text: "📢 تنظیمات کانال من", callbackData: "admin_channel_settings" }],
+            [{ text: "✨ آپدیت قیمت با هوش مصنوعی", callbackData: "admin_ai_update" }],
             [{ text: "📞 تنظیم پشتیبانی", callbackData: "admin_set_support" }],
             [{ text: "💾 مدیریت بکاپ و دیتابیس", callbackData: "admin_backup_menu" }],
             [{ text: "👥 مدیریت ادمین‌ها", callbackData: "admin_manage_admins" }],
@@ -234,6 +239,75 @@ const TelegramMock: React.FC = () => {
             [{ text: "📣 ارسال پیام همگانی", callbackData: "admin_broadcast" }],
             [{ text: "🔙 خروج از مدیریت", callbackData: "main_menu" }]
         ]);
+        return;
+    }
+
+    // --- ADMIN CHANNEL SETTINGS ---
+    if (callbackData === 'admin_channel_settings') {
+        const c = menuConfig["channel"];
+        const statusText = c.active ? "فعال ✅" : "غیرفعال ❌";
+        addBotMessage(`📢 **تنظیمات کانال من**\n\nوضعیت فعلی: ${statusText}\nلینک فعلی: ${c.url}\n\nچه کاری می‌خواهید انجام دهید؟`, [
+            [{ text: "👁️ تغییر وضعیت (روشن/خاموش)", callbackData: "menu_toggle_channel" }],
+            [{ text: "🔗 تغییر لینک کانال", callbackData: "menu_set_url_channel" }],
+            [{ text: "🔙 بازگشت", callbackData: "admin_home" }]
+        ]);
+        return;
+    }
+
+    // --- ADMIN AI UPDATE ---
+    if (callbackData === 'admin_ai_update') {
+        if (!process.env.API_KEY) {
+            addBotMessage("⚠️ کلید API یافت نشد. لطفا در تنظیمات سیستم آن را وارد کنید.", [[{ text: "🔙 بازگشت", callbackData: "admin_home" }]]);
+            return;
+        }
+        setBotState(BotState.ADMIN_AI_UPDATING);
+        addBotMessage("✨ **آپدیت هوشمند قیمت‌ها**\n\nدر این بخش، ربات با استفاده از هوش مصنوعی Gemini قیمت‌های بازار را استخراج و دیتابیس را بروزرسانی می‌کند.\n\nآیا مطمئن هستید؟", [
+            [{ text: "✅ بله، شروع آپدیت", callbackData: "admin_ai_update_start" }],
+            [{ text: "🔙 انصراف", callbackData: "admin_home" }]
+        ]);
+        return;
+    }
+
+    if (callbackData === 'admin_ai_update_start') {
+        addBotMessage("⏳ در حال تحلیل بازار و استخراج قیمت‌ها توسط هوش مصنوعی...\n(ممکن است چند ثانیه طول بکشد)");
+        
+        const runAiUpdate = async () => {
+            try {
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                const model = ai.models.generateContent({
+                    model: 'gemini-3-flash-preview',
+                    contents: `You are an Iranian car market expert. 
+                    Update the following car prices (in Millions of Tomans) to their CURRENT real-world market values in Iran.
+                    Return ONLY a JSON object matching the structure provided, with updated marketPrice and factoryPrice values.
+                    
+                    Current Data: ${JSON.stringify(carDatabase)}
+                    
+                    Rules:
+                    1. Keep the same structure.
+                    2. Update marketPrice and factoryPrice based on current Feb 2026 trends in Iran.
+                    3. Return ONLY the JSON object.`,
+                });
+                
+                const response = await model;
+                const text = response.text;
+                const jsonMatch = text?.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    const updatedDb = JSON.parse(jsonMatch[0]);
+                    setCarDatabase(updatedDb);
+                    setLastUpdate(new Date().toLocaleString('fa-IR'));
+                    addBotMessage("✅ دیتابیس قیمت‌ها با موفقیت توسط هوش مصنوعی بروزرسانی شد!", [[{ text: "🔙 بازگشت", callbackData: "admin_home" }]]);
+                } else {
+                    throw new Error("Invalid AI response");
+                }
+            } catch (error) {
+                console.error(error);
+                addBotMessage("❌ خطا در ارتباط با هوش مصنوعی. لطفا دوباره تلاش کنید.", [[{ text: "🔙 بازگشت", callbackData: "admin_home" }]]);
+            } finally {
+                setBotState(BotState.IDLE);
+            }
+        };
+        
+        runAiUpdate();
         return;
     }
 
@@ -297,10 +371,18 @@ const TelegramMock: React.FC = () => {
         return;
     }
 
-    if (callbackData.startsWith("menu_set_url_")) {
-        const key = callbackData.replace("menu_set_url_", "");
-        setTempAdminData({ mode: 'EDIT_MENU_URL', key: key });
-        addBotMessage("🔗 لینک جدید را وارد کنید (باید با https شروع شود):");
+    if (callbackData === 'menu_toggle_channel') {
+        setMenuConfig((prev: any) => ({
+            ...prev,
+            channel: { ...prev.channel, active: !prev.channel.active }
+        }));
+        addBotMessage(`✅ وضعیت کانال تغییر کرد.`, [[{ text: "🔙 بازگشت", callbackData: "admin_channel_settings" }]]);
+        return;
+    }
+
+    if (callbackData === 'menu_set_url_channel') {
+        setTempAdminData({ mode: 'EDIT_CHANNEL_URL' });
+        addBotMessage("🔗 لینک جدید کانال را وارد کنید (مثلا https://t.me/yourchannel):");
         return;
     }
 
@@ -311,6 +393,7 @@ const TelegramMock: React.FC = () => {
         
         addBotMessage(`💾 **مدیریت بکاپ و دیتابیس**\n\nوضعیت بکاپ خودکار: ${status}\n\nیک گزینه انتخاب کنید:`, [
             [{ text: "📥 دریافت بکاپ آنی (همین الان)", callbackData: "backup_get_now" }],
+            [{ text: "📤 ریستور بکاپ (بازگردانی)", callbackData: "backup_restore_menu" }],
             [{ text: "⏱ تنظیم بکاپ ساعتی (1h)", callbackData: "backup_set_1h" }],
             [{ text: "📅 تنظیم بکاپ روزانه (24h)", callbackData: "backup_set_24h" }],
             [{ text: "🚫 خاموش کردن بکاپ خودکار", callbackData: "backup_off" }],
@@ -321,17 +404,51 @@ const TelegramMock: React.FC = () => {
     
     if (callbackData === 'backup_get_now') {
         addBotMessage("⏳ در حال ایجاد فایل بکاپ...");
+        // Save current state to "backup"
+        setBackupData({
+            carDatabase,
+            menuConfig,
+            supportConfig,
+            sponsorConfig
+        });
+        
         setTimeout(() => {
              setMessages(prev => [...prev, {
                 id: Date.now().toString(),
-                text: "💾 bot_data.json\n(فایل دیتابیس کامل)",
+                text: "💾 bot_data.json\n(فایل دیتابیس کامل ذخیره شد)",
                 sender: 'bot',
                 timestamp: new Date(),
                 buttons: []
             }]);
             setTimeout(() => {
-                addBotMessage("✅ فایل بکاپ ارسال شد.", [[{ text: "🔙 منوی بکاپ", callbackData: "admin_backup_menu" }]]);
+                addBotMessage("✅ فایل بکاپ در حافظه شبیه‌ساز ذخیره شد.", [[{ text: "🔙 منوی بکاپ", callbackData: "admin_backup_menu" }]]);
             }, 500);
+        }, 1000);
+        return;
+    }
+
+    if (callbackData === 'backup_restore_menu') {
+        if (!backupData) {
+            addBotMessage("❌ هیچ بکاپی یافت نشد! ابتدا یک بکاپ بگیرید.", [[{ text: "🔙 بازگشت", callbackData: "admin_backup_menu" }]]);
+            return;
+        }
+        addBotMessage("⚠️ **هشدار ریستور**\n\nبا بازگردانی بکاپ، تمام تنظیمات و قیمت‌های فعلی حذف شده و دیتای قبلی جایگزین می‌شود.\n\nآیا ادامه می‌دهید؟", [
+            [{ text: "✅ بله، ریستور شود", callbackData: "backup_restore_confirm" }],
+            [{ text: "🔙 انصراف", callbackData: "admin_backup_menu" }]
+        ]);
+        return;
+    }
+
+    if (callbackData === 'backup_restore_confirm') {
+        addBotMessage("⏳ در حال بازگردانی اطلاعات...");
+        setTimeout(() => {
+            if (backupData) {
+                setCarDatabase(backupData.carDatabase);
+                setMenuConfig(backupData.menuConfig);
+                setSupportConfig(backupData.supportConfig);
+                setSponsorConfig(backupData.sponsorConfig);
+                addBotMessage("✅ اطلاعات با موفقیت بازگردانی شد.", [[{ text: "🔙 منوی مدیریت", callbackData: "admin_home" }]]);
+            }
         }, 1000);
         return;
     }
@@ -355,13 +472,13 @@ const TelegramMock: React.FC = () => {
     // --- Price List Flow (INTERNAL) ---
     if (callbackData === 'menu_prices') {
       setBotState(BotState.BROWSING_BRANDS);
-      const buttons = Object.keys(CAR_DB).map(brand => [{ text: brand, callbackData: `brand_${brand}` }]);
+      const buttons = Object.keys(carDatabase).map(brand => [{ text: brand, callbackData: `brand_${brand}` }]);
       buttons.push([{ text: "🔙 بازگشت", callbackData: "main_menu" }]);
       addBotMessage("🏢 لطفا شرکت سازنده را انتخاب کنید:", buttons);
     } 
     else if (callbackData.startsWith('brand_')) {
       const brandName = callbackData.replace('brand_', '');
-      const brand = CAR_DB[brandName];
+      const brand = carDatabase[brandName];
       
       if (botState === BotState.ESTIMATING_BRAND) {
         setEstimateData(prev => ({ ...prev, brand: brandName }));
@@ -383,7 +500,7 @@ const TelegramMock: React.FC = () => {
       if (botState === BotState.BROWSING_MODELS) {
          let foundBrand = null;
          let foundModelData = null;
-         for (const [bName, bData] of Object.entries(CAR_DB)) {
+         for (const [bName, bData] of Object.entries(carDatabase) as [string, CarBrand][]) {
              const m = bData.models.find(m => m.name === modelName);
              if (m) { foundBrand = bName; foundModelData = m; break; }
          }
@@ -416,7 +533,7 @@ const TelegramMock: React.FC = () => {
       let foundBrandName = "";
       let foundVariant = null;
 
-      for (const [bName, bData] of Object.entries(CAR_DB)) {
+      for (const [bName, bData] of Object.entries(carDatabase) as [string, CarBrand][]) {
           const m = bData.models.find(m => m.name === modelName);
           if (m && m.variants[variantIdx]) {
               foundBrandName = bName;
@@ -445,7 +562,7 @@ const TelegramMock: React.FC = () => {
     else if (callbackData === 'menu_estimate') {
       setBotState(BotState.ESTIMATING_BRAND);
       setEstimateData({});
-      const buttons = Object.keys(CAR_DB).map(brand => [{ text: brand, callbackData: `brand_${brand}` }]);
+      const buttons = Object.keys(carDatabase).map(brand => [{ text: brand, callbackData: `brand_${brand}` }]);
       buttons.push([{ text: "🔙 انصراف", callbackData: "main_menu" }]);
       addBotMessage("برای تخمین قیمت، ابتدا برند خودرو را انتخاب کنید:", buttons);
     }
@@ -463,7 +580,7 @@ const TelegramMock: React.FC = () => {
         
         // Find Zero Price (Mock)
         let zeroPrice = 800; 
-        for (const b of Object.values(CAR_DB)) {
+        for (const b of Object.values(carDatabase) as CarBrand[]) {
            const m = b.models.find(mod => mod.name === model);
            if (m) { zeroPrice = m.variants[0].marketPrice; break; }
         }
@@ -684,6 +801,20 @@ const TelegramMock: React.FC = () => {
                 [key]: { ...prev[key], url: txt }
             }));
             addBotMessage(`✅ لینک دکمه تغییر کرد.`, [[{ text: "🔙 مدیریت منو", callbackData: "admin_menus" }]]);
+            setTempAdminData({});
+            return;
+        }
+
+        if (tempAdminData.mode === 'EDIT_CHANNEL_URL') {
+            if (!txt.startsWith("http")) {
+                addBotMessage("❌ لینک نامعتبر است. با http یا https شروع کنید.");
+                return;
+            }
+            setMenuConfig((prev: any) => ({
+                ...prev,
+                channel: { ...prev.channel, url: txt }
+            }));
+            addBotMessage(`✅ لینک کانال تغییر کرد.`, [[{ text: "🔙 تنظیمات کانال", callbackData: "admin_channel_settings" }]]);
             setTempAdminData({});
             return;
         }
