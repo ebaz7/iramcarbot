@@ -554,6 +554,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("⚙️ مدیریت منو", callback_data="admin_menus")],
             [InlineKeyboardButton("📢 تنظیمات کانال", callback_data="admin_channel_settings")],
             [InlineKeyboardButton("✨ آپدیت هوشمند (AI)", callback_data="admin_ai_update")],
+            [InlineKeyboardButton("📂 آپدیت قیمت (اکسل)", callback_data="admin_update_excel")],
+            [InlineKeyboardButton("➕ افزودن تکی خودرو", callback_data="admin_add_car")],
             [InlineKeyboardButton("📞 تنظیم پشتیبانی", callback_data="admin_set_support")],
             [InlineKeyboardButton("👥 ادمین‌ها", callback_data="admin_manage_admins")],
             [InlineKeyboardButton("💾 بکاپ", callback_data="admin_backup_menu")],
