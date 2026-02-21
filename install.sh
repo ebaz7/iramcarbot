@@ -42,26 +42,29 @@ function setup_environment() {
 
     echo -e "${BLUE}📂 Setting up Directory: $INSTALL_DIR ${NC}"
     
-    if [ -d "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR/.git" ]; then
-        echo -e "${YELLOW}Cleaning up corrupt directory...${NC}"
-        rm -rf "$INSTALL_DIR"
-    fi
-
-    if [ -d "$INSTALL_DIR/.git" ]; then
-        echo -e "${GREEN}🔄 Pulling latest changes...${NC}"
-        cd "$INSTALL_DIR"
-        git reset --hard
-        git pull
+    # Check if directory exists
+    if [ -d "$INSTALL_DIR" ]; then
+        echo -e "${YELLOW}Directory exists.${NC}"
+        read -p "Do you want to overwrite local files with GitHub version? (y/n): " overwrite_git
+        if [[ "$overwrite_git" == "y" ]]; then
+            if [ -d "$INSTALL_DIR/.git" ]; then
+                echo -e "${GREEN}🔄 Pulling latest changes...${NC}"
+                cd "$INSTALL_DIR"
+                git reset --hard
+                git pull
+            else
+                echo -e "${YELLOW}Cleaning up directory...${NC}"
+                rm -rf "$INSTALL_DIR"
+                echo -e "${GREEN}⬇️  Cloning repository...${NC}"
+                git clone "$REPO_URL" "$INSTALL_DIR"
+            fi
+        else
+            echo -e "${GREEN}✅ Keeping local files.${NC}"
+            cd "$INSTALL_DIR"
+        fi
     else
         echo -e "${GREEN}⬇️  Cloning repository...${NC}"
         git clone "$REPO_URL" "$INSTALL_DIR"
-        
-        if [ ! -d "$INSTALL_DIR" ]; then
-             echo -e "${RED}❌ Error: Git clone failed.${NC}"
-             pause
-             return 1
-        fi
-        
         cd "$INSTALL_DIR"
     fi
 
@@ -78,7 +81,7 @@ function setup_environment() {
     
     source venv/bin/activate
     pip install --upgrade pip
-    pip install python-telegram-bot pandas openpyxl jdatetime google-generativeai
+    pip install python-telegram-bot pandas openpyxl jdatetime google-generativeai requests
 }
 
 function configure_bot() {
@@ -87,20 +90,22 @@ function configure_bot() {
     echo -e "\n${BLUE}⚙️  Bot Configuration ${NC}"
     echo "------------------------------------------------"
     
-    # 1. Telegram Token
-    if grep -q "REPLACE_ME_TOKEN" bot.py; then
+    # Always ask for configuration
+    read -p "Do you want to configure Bot Token & Keys? (y/n): " config_keys
+    if [[ "$config_keys" == "y" ]]; then
         read -p "Enter Telegram Bot Token: " BOT_TOKEN
         read -p "Enter Admin Numeric ID: " ADMIN_ID
         read -p "Enter Gemini API Key (Optional, for AI prices): " GEMINI_KEY
         read -p "Enter DeepSeek API Key (Optional, for AI prices): " DEEPSEEK_KEY
         
-        sed -i "s/REPLACE_ME_TOKEN/$BOT_TOKEN/g" bot.py
-        sed -i "s/OWNER_ID = 0/OWNER_ID = $ADMIN_ID/g" bot.py
-        sed -i "s/GEMINI_API_KEY = ''/GEMINI_API_KEY = '$GEMINI_KEY'/g" bot.py
-        sed -i "s/DEEPSEEK_API_KEY = ''/DEEPSEEK_API_KEY = '$DEEPSEEK_KEY'/g" bot.py
+        # Use regex to replace existing values regardless of what they are
+        sed -i "s/TOKEN = .*/TOKEN = '$BOT_TOKEN'/g" bot.py
+        sed -i "s/OWNER_ID = .*/OWNER_ID = $ADMIN_ID/g" bot.py
+        sed -i "s/GEMINI_API_KEY = .*/GEMINI_API_KEY = '$GEMINI_KEY'/g" bot.py
+        sed -i "s/DEEPSEEK_API_KEY = .*/DEEPSEEK_API_KEY = '$DEEPSEEK_KEY'/g" bot.py
         echo -e "${GREEN}✅ Configuration Saved.${NC}"
     else
-        echo -e "${GREEN}Telegram Token already configured.${NC}"
+        echo -e "${YELLOW}Skipping configuration.${NC}"
     fi
 
     # 2. SECURITY SETUP (MANDATORY REQUESTED)
