@@ -93,17 +93,36 @@ function configure_bot() {
     # Always ask for configuration
     read -p "Do you want to configure Bot Token & Keys? (y/n): " config_keys
     if [[ "$config_keys" == "y" ]]; then
-        read -p "Enter Telegram Bot Token: " BOT_TOKEN
-        read -p "Enter Admin Numeric ID: " ADMIN_ID
+        while [[ -z "$BOT_TOKEN" ]]; do
+            read -p "Enter Telegram Bot Token (Required): " BOT_TOKEN
+        done
+        
+        while [[ ! "$ADMIN_ID" =~ ^[0-9]+$ ]]; do
+            read -p "Enter Admin Numeric ID (Required, Numbers only): " ADMIN_ID
+        done
+
         read -p "Enter Gemini API Key (Optional, for AI prices): " GEMINI_KEY
         read -p "Enter DeepSeek API Key (Optional, for AI prices): " DEEPSEEK_KEY
         
         # Use regex to replace existing values regardless of what they are
-        sed -i "s/TOKEN = .*/TOKEN = '$BOT_TOKEN'/g" bot.py
-        sed -i "s/OWNER_ID = .*/OWNER_ID = $ADMIN_ID/g" bot.py
-        sed -i "s/GEMINI_API_KEY = .*/GEMINI_API_KEY = '$GEMINI_KEY'/g" bot.py
-        sed -i "s/DEEPSEEK_API_KEY = .*/DEEPSEEK_API_KEY = '$DEEPSEEK_KEY'/g" bot.py
+        sed -i "s|TOKEN = .*|TOKEN = '$BOT_TOKEN'|g" bot.py
+        sed -i "s|OWNER_ID = .*|OWNER_ID = $ADMIN_ID|g" bot.py
+        sed -i "s|GEMINI_API_KEY = .*|GEMINI_API_KEY = '$GEMINI_KEY'|g" bot.py
+        sed -i "s|DEEPSEEK_API_KEY = .*|DEEPSEEK_API_KEY = '$DEEPSEEK_KEY'|g" bot.py
+        
         echo -e "${GREEN}✅ Configuration Saved.${NC}"
+        
+        # Check syntax
+        if ! python3 -m py_compile bot.py; then
+            echo -e "${RED}❌ Syntax Error in bot.py! Please check your inputs.${NC}"
+            pause
+            return 1
+        fi
+
+        # Restart service to apply changes
+        echo -e "${BLUE}🔄 Restarting Service to apply new configuration...${NC}"
+        sudo systemctl restart $SERVICE_NAME
+        sudo systemctl status $SERVICE_NAME --no-pager
     else
         echo -e "${YELLOW}Skipping configuration.${NC}"
     fi
@@ -303,13 +322,14 @@ while true; do
     echo -e "${BLUE}========================================${NC}"
     echo -e "1) ${GREEN}Install / Reinstall${NC}"
     echo -e "2) ${YELLOW}Update Bot${NC}"
-    echo -e "3) View Logs"
-    echo -e "4) Check Status"
-    echo -e "5) Restart Bot"
-    echo -e "6) Stop Bot"
-    echo -e "7) ${BLUE}Backup Data${NC}"
-    echo -e "8) ${BLUE}Restore Data${NC} (Secure)"
-    echo -e "9) ${RED}Uninstall${NC}"
+    echo -e "3) ${YELLOW}Configure Bot (Token/Keys)${NC}"
+    echo -e "4) View Logs"
+    echo -e "5) Check Status"
+    echo -e "6) Restart Bot"
+    echo -e "7) Stop Bot"
+    echo -e "8) ${BLUE}Backup Data${NC}"
+    echo -e "9) ${BLUE}Restore Data${NC} (Secure)"
+    echo -e "10) ${RED}Uninstall${NC}"
     echo -e "0) Exit"
     echo -e "${BLUE}========================================${NC}"
     read -p "Select: " choice
@@ -317,13 +337,14 @@ while true; do
     case $choice in
         1) do_install ;;
         2) do_update ;;
-        3) journalctl -u $SERVICE_NAME -n 50 -f ;;
-        4) sudo systemctl status $SERVICE_NAME; pause ;;
-        5) sudo systemctl restart $SERVICE_NAME; echo "Done."; pause ;;
-        6) sudo systemctl stop $SERVICE_NAME; echo "Done."; pause ;;
-        7) do_backup ;;
-        8) do_restore ;;
-        9) do_uninstall ;;
+        3) configure_bot; pause ;;
+        4) journalctl -u $SERVICE_NAME -n 50 -f ;;
+        5) sudo systemctl status $SERVICE_NAME; pause ;;
+        6) sudo systemctl restart $SERVICE_NAME; echo "Done."; pause ;;
+        7) sudo systemctl stop $SERVICE_NAME; echo "Done."; pause ;;
+        8) do_backup ;;
+        9) do_restore ;;
+        10) do_uninstall ;;
         0) exit 0 ;;
         *) echo "Invalid."; pause ;;
     esac
