@@ -107,8 +107,8 @@ def save_data(data):
 
 def register_user(user_id):
     d = load_data()
-    if user_id not in d.get("users", []):
-        if "users" not in d: d["users"] = []
+    if "users" not in d: d["users"] = []
+    if user_id not in d["users"]:
         d["users"].append(user_id)
         save_data(d)
 
@@ -186,6 +186,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reset_state(user_id)
     await update.message.reply_text(f"👋 سلام! به ربات قیمت خودرو و موبایل خوش آمدید.\n📅 امروز: {datetime.date.today()}", reply_markup=get_main_menu(user_id))
 
+async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        await context.bot.delete_my_commands()
+        await context.bot.set_my_commands([
+            BotCommand("start", "🏠 منوی اصلی"),
+            BotCommand("admin", "👑 پنل مدیریت"),
+            BotCommand("fixmenu", "🔧 تعمیر دکمه منو")
+        ])
+        await context.bot.set_chat_menu_button(chat_id=user_id, menu_button=MenuButtonCommands())
+        await update.message.reply_text("✅ منو تعمیر شد.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطا: {e}")
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -238,7 +252,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "menu_set_url_channel" and is_admin(user_id):
-        set_state(user_id, STATE_ADMIN_SET_CHANNEL_URL)
+        set_state(user_id, "ADM_SET_CHANNEL_URL")
         await query.message.reply_text("لینک جدید کانال را وارد کنید:")
         return
 
@@ -257,26 +271,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⏳ در حال آپدیت قیمت‌ها توسط هوش مصنوعی Gemini... لطفا صبر کنید.")
         try:
             genai.configure(api_key=GEMINI_API_KEY)
-            # Try with -latest suffix which is often more stable
             model = genai.GenerativeModel('gemini-1.5-flash-latest')
-            
-            prompt = f"Update these Iranian car prices (in Millions of Tomans) to current market values for Feb 2026. Return ONLY a raw JSON object, no markdown, no backticks. Structure: {json.dumps(CAR_DB)}"
+            prompt = f"Update these Iranian car prices to current values for Feb 2026. Return ONLY raw JSON. Structure: {json.dumps(CAR_DB)}"
             response = model.generate_content(prompt)
-            
             clean_text = response.text.strip()
-            if clean_text.startswith("```"):
-                clean_text = re.sub(r'```json|```', '', clean_text).strip()
-            
+            if clean_text.startswith("```"): clean_text = re.sub(r'```json|```', '', clean_text).strip()
             new_db = json.loads(clean_text)
             await query.message.reply_text("✅ قیمت‌ها با موفقیت توسط هوش مصنوعی تحلیل و بروزرسانی شدند.")
         except Exception as e:
             logger.error(f"AI Update Error: {e}")
-            try:
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content(prompt)
-                await query.message.reply_text("✅ قیمت‌ها با موفقیت توسط هوش مصنوعی تحلیل و بروزرسانی شدند.")
-            except:
-                await query.message.reply_text(f"❌ خطا در آپدیت هوشمند: {str(e)}")
+            await query.message.reply_text(f"❌ خطا در آپدیت هوشمند: {str(e)}")
         return
 
     if data == "admin_update_excel" and is_admin(user_id):
@@ -540,14 +544,22 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ فایل اکسل دریافت شد و در حال پردازش است...")
         reset_state(user_id)
 
+async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
+    if os.path.exists(DATA_FILE):
+        await context.bot.send_document(chat_id=OWNER_ID, document=open(DATA_FILE, 'rb'), caption=f"💾 Auto Backup: {datetime.datetime.now()}")
+
 async def post_init(application):
+    data = load_data()
+    interval = data.get("backup_interval", 0)
+    if interval > 0: application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=60)
     try:
-        await application.bot.set_my_commands([BotCommand("start", "🏠 منو"), BotCommand("admin", "👑 مدیریت")])
+        await application.bot.set_my_commands([BotCommand("start", "🏠 منو"), BotCommand("admin", "👑 مدیریت"), BotCommand("fixmenu", "🔧 تعمیر منو")])
     except: pass
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("fixmenu", fix_menu))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
