@@ -5,14 +5,17 @@ import os
 import datetime
 import shutil
 import re
+import requests
 import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+import pandas as pd
 
 # Configuration
 TOKEN = 'REPLACE_ME_TOKEN' 
 OWNER_ID = 0
 GEMINI_API_KEY = ''
+DEEPSEEK_API_KEY = ''
 DATA_FILE = 'bot_data.json'
 
 # Default Menu Configuration
@@ -65,6 +68,10 @@ STATE_ADMIN_EDIT_MENU_LABEL = "ADM_EDIT_LABEL"
 STATE_ADMIN_EDIT_MENU_URL = "ADM_EDIT_URL"
 STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 STATE_ADMIN_SET_CHANNEL_URL = "ADM_SET_CHANNEL_URL"
+STATE_ADMIN_ADD_CAR_BRAND = "ADM_ADD_CAR_BRAND"
+STATE_ADMIN_ADD_CAR_MODEL = "ADM_ADD_CAR_MODEL"
+STATE_ADMIN_ADD_CAR_PRICE = "ADM_ADD_CAR_PRICE"
+STATE_ADMIN_UPLOAD_EXCEL = "ADM_UPLOAD_EXCEL"
 
 # --- Data Management ---
 def load_data():
@@ -270,38 +277,99 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "admin_ai_update" and is_admin(user_id):
-        if not GEMINI_API_KEY:
-            await query.message.reply_text("❌ کلید API تنظیم نشده است.")
-            return
         keyboard = [
-            [InlineKeyboardButton("✅ بله، شروع آپدیت", callback_data="admin_ai_update_start")],
-            [InlineKeyboardButton("🔙 انصراف", callback_data="admin_home")]
+            [InlineKeyboardButton("🚗 آپدیت قیمت خودرو (Gemini)", callback_data="ai_update_cars_gemini")],
+            [InlineKeyboardButton("🚗 آپدیت قیمت خودرو (DeepSeek)", callback_data="ai_update_cars_deepseek")],
+            [InlineKeyboardButton("📱 ساخت/آپدیت لیست موبایل (Gemini)", callback_data="ai_update_mobs_gemini")],
+            [InlineKeyboardButton("📱 ساخت/آپدیت لیست موبایل (DeepSeek)", callback_data="ai_update_mobs_deepseek")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
         ]
-        await query.edit_message_text("✨ **آپدیت هوشمند قیمت‌ها**\nآیا مطمئن هستید؟", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("✨ **منوی هوش مصنوعی**\nیکی از گزینه‌ها را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-    if data == "admin_ai_update_start" and is_admin(user_id):
-        await query.edit_message_text("⏳ در حال آپدیت قیمت‌ها توسط هوش مصنوعی Gemini... لطفا صبر کنید.")
+    if data.startswith("ai_update_") and is_admin(user_id):
+        mode = data.replace("ai_update_", "")
+        await query.edit_message_text(f"⏳ در حال پردازش ({mode})... لطفا صبر کنید (ممکن است تا ۳۰ ثانیه طول بکشد).")
+        
         try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            # Using a more stable model name string
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            prompt = ""
+            if "cars" in mode:
+                prompt = f"Update these Iranian car prices (in Millions of Tomans) to current market values for Feb 2026. Return ONLY a raw JSON object matching this structure: {json.dumps(CAR_DB)}"
+            else:
+                prompt = "Generate a JSON object for mobile phone prices in Iran (Feb 2026). Structure: {'Samsung': {'models': [{'name': 'S24 Ultra', 'price': 70, 'storage': '256GB'}]}, 'Apple': {'models': [...]}}. Return ONLY raw JSON."
+
+            response_text = ""
             
-            prompt = f"Update these Iranian car prices (in Millions of Tomans) to current market values for Feb 2026. Return ONLY a raw JSON object, no markdown, no backticks. Structure: {json.dumps(CAR_DB)}"
-            response = model.generate_content(prompt)
-            
-            # Extract JSON more robustly
-            clean_text = response.text.strip()
+            # --- GEMINI ---
+            if "gemini" in mode:
+                if not GEMINI_API_KEY:
+                    await query.message.reply_text("❌ کلید Gemini API تنظیم نشده است.")
+                    return
+                genai.configure(api_key=GEMINI_API_KEY)
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                resp = model.generate_content(prompt)
+                response_text = resp.text
+
+            # --- DEEPSEEK ---
+            elif "deepseek" in mode:
+                if not DEEPSEEK_API_KEY:
+                    await query.message.reply_text("❌ کلید DeepSeek API تنظیم نشده است.")
+                    return
+                headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+                payload = {
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False
+                }
+                resp = requests.post("https://api.deepseek.com/chat/completions", headers=headers, json=payload)
+                if resp.status_code == 200:
+                    response_text = resp.json()['choices'][0]['message']['content']
+                else:
+                    raise Exception(f"DeepSeek Error: {resp.text}")
+
+            # Process Response
+            clean_text = response_text.strip()
             if clean_text.startswith("```"):
                 clean_text = re.sub(r'```json|```', '', clean_text).strip()
             
-            new_db = json.loads(clean_text)
-            # In a real scenario, we'd save this to a file or global state
-            # For now, we confirm the AI successfully processed the data
-            await query.message.reply_text("✅ قیمت‌ها با موفقیت توسط هوش مصنوعی تحلیل و بروزرسانی شدند.")
+            new_data = json.loads(clean_text)
+            
+            # Update DB
+            global CAR_DB, MOBILE_DB
+            if "cars" in mode:
+                CAR_DB = new_data
+            else:
+                MOBILE_DB = new_data
+                
+            # Save to file (mock save for now)
+            d = load_data()
+            if "cars" in mode: d["car_db_cache"] = CAR_DB 
+            else: d["mobile_db_cache"] = MOBILE_DB
+            save_data(d)
+
+            await query.message.reply_text("✅ آپدیت با موفقیت انجام شد!")
+
         except Exception as e:
-            logger.error(f"AI Update Error: {e}")
-            await query.message.reply_text(f"❌ خطا در آپدیت هوشمند: {str(e)}")
+            logger.error(f"AI Error: {e}")
+            await query.message.reply_text(f"❌ خطا: {str(e)}")
+        return
+
+    # --- ADMIN: EXCEL UPDATE ---
+    if data == "admin_update_excel":
+        set_state(user_id, STATE_ADMIN_UPLOAD_EXCEL)
+        await query.message.reply_text(
+            "📂 **آپدیت از طریق اکسل**\n\n"
+            "لطفا یک فایل اکسل (.xlsx) ارسال کنید که دارای ستون‌های زیر باشد:\n"
+            "`Brand`, `Model`, `Price`\n\n"
+            "مثال:\nBrand: سایپا\nModel: پراید 131\nPrice: 350",
+            parse_mode='Markdown'
+        )
+        return
+
+    # --- ADMIN: MANUAL ADD CAR ---
+    if data == "admin_add_car":
+        set_state(user_id, STATE_ADMIN_ADD_CAR_BRAND)
+        await query.message.reply_text("🚙 نام برند خودرو را وارد کنید (مثلا: ایران خودرو):")
         return
 
     # --- ADMIN: SET SUPPORT ---
@@ -608,6 +676,50 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🆔 {user_id}")
         return
 
+    # --- ADMIN: MANUAL ADD CAR FLOW ---
+    if state_info["state"] == STATE_ADMIN_ADD_CAR_BRAND:
+        update_data(user_id, "new_car_brand", text)
+        set_state(user_id, STATE_ADMIN_ADD_CAR_MODEL)
+        await update.message.reply_text("🚙 نام مدل را وارد کنید (مثلا: دنا پلاس):")
+        return
+
+    if state_info["state"] == STATE_ADMIN_ADD_CAR_MODEL:
+        update_data(user_id, "new_car_model", text)
+        set_state(user_id, STATE_ADMIN_ADD_CAR_PRICE)
+        await update.message.reply_text("💰 قیمت را وارد کنید (به میلیون تومان، فقط عدد):")
+        return
+
+    if state_info["state"] == STATE_ADMIN_ADD_CAR_PRICE:
+        try:
+            price = int(text)
+            data = state_info["data"]
+            brand = data["new_car_brand"]
+            model = data["new_car_model"]
+            
+            # Add to DB (In-Memory for now, would be persistent in real app)
+            if brand not in CAR_DB:
+                CAR_DB[brand] = {"models": []}
+            
+            # Check if model exists
+            model_exists = False
+            for m in CAR_DB[brand]["models"]:
+                if m["name"] == model:
+                    m["variants"][0]["marketPrice"] = price # Update base variant
+                    model_exists = True
+                    break
+            
+            if not model_exists:
+                CAR_DB[brand]["models"].append({
+                    "name": model,
+                    "variants": [{"name": "معمولی", "marketPrice": price, "factoryPrice": price}]
+                })
+            
+            await update.message.reply_text(f"✅ خودرو {brand} - {model} با قیمت {price} اضافه/آپدیت شد.")
+            reset_state(user_id)
+        except:
+            await update.message.reply_text("❌ فقط عدد وارد کنید.")
+        return
+
     # --- ADMIN: SET SUPPORT ---
     if state_info["state"] == STATE_ADMIN_SET_SUPPORT:
         d = load_data()
@@ -710,6 +822,52 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: await update.message.reply_text("⚠️ فقط عدد وارد کنید.")
         return
 
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state_info = get_state(user_id)
+    
+    if state_info["state"] == STATE_ADMIN_UPLOAD_EXCEL:
+        doc = update.message.document
+        if not doc.file_name.endswith('.xlsx'):
+            await update.message.reply_text("❌ لطفا فقط فایل اکسل (.xlsx) ارسال کنید.")
+            return
+            
+        file = await doc.get_file()
+        file_path = f"temp_{user_id}.xlsx"
+        await file.download_to_drive(file_path)
+        
+        try:
+            df = pd.read_excel(file_path)
+            # Expected columns: Brand, Model, Price
+            count = 0
+            for index, row in df.iterrows():
+                brand = str(row['Brand'])
+                model = str(row['Model'])
+                price = int(row['Price'])
+                
+                if brand not in CAR_DB: CAR_DB[brand] = {"models": []}
+                
+                # Simple upsert logic
+                found = False
+                for m in CAR_DB[brand]["models"]:
+                    if m["name"] == model:
+                        m["variants"][0]["marketPrice"] = price
+                        found = True
+                        break
+                if not found:
+                    CAR_DB[brand]["models"].append({
+                        "name": model,
+                        "variants": [{"name": "Standard", "marketPrice": price, "factoryPrice": price}]
+                    })
+                count += 1
+                
+            await update.message.reply_text(f"✅ {count} خودرو از فایل اکسل آپدیت شد.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطا در پردازش فایل: {e}")
+        finally:
+            if os.path.exists(file_path): os.remove(file_path)
+            reset_state(user_id)
+
 async def post_init(application):
     # Auto-Backup
     data = load_data()
@@ -732,6 +890,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("fixmenu", fix_menu))
     app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.Document, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("Bot is running...")
     app.run_polling()
