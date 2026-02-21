@@ -331,6 +331,13 @@ const TelegramMock: React.FC = () => {
 
     if (callbackData.startsWith("edit_menu_")) {
         const key = callbackData.replace("edit_menu_", "");
+        
+        // Special case for channel to use the dedicated settings UI
+        if (key === "channel") {
+            handleCallback({ text: "", callbackData: "admin_channel_settings" });
+            return;
+        }
+
         const c = menuConfig[key];
         const statusText = c.active ? "فعال ✅" : "غیرفعال ❌";
         
@@ -368,6 +375,13 @@ const TelegramMock: React.FC = () => {
         const key = callbackData.replace("menu_set_label_", "");
         setTempAdminData({ mode: 'EDIT_MENU_LABEL', key: key });
         addBotMessage("✍️ نام جدید برای این دکمه را وارد کنید:");
+        return;
+    }
+
+    if (callbackData.startsWith("menu_set_url_")) {
+        const key = callbackData.replace("menu_set_url_", "");
+        setTempAdminData({ mode: 'EDIT_MENU_URL', key: key });
+        addBotMessage("🔗 لینک جدید را وارد کنید (باید با https شروع شود):");
         return;
     }
 
