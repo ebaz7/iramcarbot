@@ -78,7 +78,7 @@ function setup_environment() {
     
     source venv/bin/activate
     pip install --upgrade pip
-    pip install python-telegram-bot pandas openpyxl jdatetime
+    pip install python-telegram-bot pandas openpyxl jdatetime google-generativeai
 }
 
 function configure_bot() {
@@ -91,10 +91,12 @@ function configure_bot() {
     if grep -q "REPLACE_ME_TOKEN" bot.py; then
         read -p "Enter Telegram Bot Token: " BOT_TOKEN
         read -p "Enter Admin Numeric ID: " ADMIN_ID
+        read -p "Enter Gemini API Key (Optional, for AI prices): " GEMINI_KEY
         
         sed -i "s/REPLACE_ME_TOKEN/$BOT_TOKEN/g" bot.py
         sed -i "s/OWNER_ID = 0/OWNER_ID = $ADMIN_ID/g" bot.py
-        echo -e "${GREEN}✅ Telegram Token Saved.${NC}"
+        sed -i "s/GEMINI_API_KEY = ''/GEMINI_API_KEY = '$GEMINI_KEY'/g" bot.py
+        echo -e "${GREEN}✅ Configuration Saved.${NC}"
     else
         echo -e "${GREEN}Telegram Token already configured.${NC}"
     fi
