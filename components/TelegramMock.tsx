@@ -225,6 +225,7 @@ const TelegramMock: React.FC = () => {
     if (callbackData === 'admin_home') {
         addBotMessage("🛠 **پنل مدیریت پیشرفته**\n\nگزینه مورد نظر را انتخاب کنید:", [
             [{ text: "⚙️ مدیریت دکمه‌ها و منو", callbackData: "admin_menus" }],
+            [{ text: "📢 تنظیم کانال اصلی", callbackData: "admin_set_channel" }],
             [{ text: "📞 تنظیم پشتیبانی", callbackData: "admin_set_support" }],
             [{ text: "💾 مدیریت بکاپ و دیتابیس", callbackData: "admin_backup_menu" }],
             [{ text: "👥 مدیریت ادمین‌ها", callbackData: "admin_manage_admins" }],
@@ -234,6 +235,13 @@ const TelegramMock: React.FC = () => {
             [{ text: "📣 ارسال پیام همگانی", callbackData: "admin_broadcast" }],
             [{ text: "🔙 خروج از مدیریت", callbackData: "main_menu" }]
         ]);
+        return;
+    }
+
+    // --- ADMIN SET CHANNEL ---
+    if (callbackData === 'admin_set_channel') {
+        addBotMessage("✍️ نام دکمه **کانال** را وارد کنید (مثلا: 📢 کانال ما):");
+        setTempAdminData({ mode: 'SET_CHANNEL_NAME' });
         return;
     }
 
@@ -727,6 +735,26 @@ const TelegramMock: React.FC = () => {
             setSponsorConfig({ name: tempAdminData.name, url: txt });
             setTempAdminData({});
             addBotMessage(`✅ اسپانسر تنظیم شد!`, [[{ text: "🔙 منوی مدیریت", callbackData: "admin_home" }]]);
+            return;
+        }
+
+        // Channel Logic
+        if (tempAdminData.mode === 'SET_CHANNEL_NAME') {
+            setTempAdminData({ mode: 'SET_CHANNEL_URL', name: txt });
+            addBotMessage(`✅ نام دکمه: "${txt}"\n\nحالا **لینک کانال** را وارد کنید (https://t.me/...):`);
+            return;
+        }
+        if (tempAdminData.mode === 'SET_CHANNEL_URL') {
+             if (!txt.startsWith("http")) {
+                 addBotMessage("❌ لینک نامعتبر است. با http یا https شروع کنید.");
+                 return;
+            }
+            setMenuConfig((prev: any) => ({
+                ...prev,
+                channel: { ...prev.channel, label: tempAdminData.name, url: txt, active: true }
+            }));
+            setTempAdminData({});
+            addBotMessage(`✅ کانال اصلی تنظیم و فعال شد!`, [[{ text: "🔙 منوی مدیریت", callbackData: "admin_home" }]]);
             return;
         }
     }
