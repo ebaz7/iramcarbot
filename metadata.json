@@ -1,5 +1,5 @@
 {
-  "name": "Iran Car Bot Builder",
-  "description": "A comprehensive tool to simulate, build, and deploy a Telegram bot for Iranian car prices and estimation. Features a live simulator, code generation, and market analysis.",
+  "name": "Pro Price Tracker Bot",
+  "description": "A professional Telegram bot for tracking Car, Mobile, and Economy prices with AI integration, Mini-Apps, and multi-level admin control.",
   "requestFramePermissions": []
 }
