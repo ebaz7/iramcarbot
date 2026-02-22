@@ -212,7 +212,7 @@ def get_ai_control_menu(user_id):
         ],
         [InlineKeyboardButton("⚖️ اولویت (Priority)", callback_data="noop")],
         [
-            InlineKeyboardButton(f"{"✅" if priority == 'excel' else ''} 엑셀", callback_data="ai_set_priority_excel"),
+            InlineKeyboardButton(f"{"✅" if priority == 'excel' else ''} اکسل", callback_data="ai_set_priority_excel"),
             InlineKeyboardButton(f"{"✅" if priority == 'ai' else ''} هوش مصنوعی", callback_data="ai_set_priority_ai")
         ],
         [InlineKeyboardButton("⏰ زمانبندی آپدیت خودکار", callback_data="noop")],
@@ -346,41 +346,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_set_url_channel" and is_admin(user_id):
         set_state(user_id, "ADM_SET_CHANNEL_URL")
         await query.message.reply_text("لینک جدید کانال را وارد کنید:")
-        return
-
-    if data == "admin_ai_update" and is_admin(user_id):
-        if not GEMINI_API_KEY:
-            await query.message.reply_text("❌ کلید API تنظیم نشده است.")
-            return
-        keyboard = [
-            [InlineKeyboardButton("✅ بله، شروع آپدیت", callback_data="admin_ai_update_start")],
-            [InlineKeyboardButton("🔙 انصراف", callback_data="admin_home")]
-        ]
-        await query.edit_message_text("✨ **آپدیت هوشمند قیمت‌ها**\nآیا مطمئن هستید؟", reply_markup=InlineKeyboardMarkup(keyboard))
-        return
-
-    if data == "admin_ai_update_start" and is_admin(user_id):
-        await query.edit_message_text("⏳ در حال آپدیت قیمت‌ها توسط هوش مصنوعی Gemini... لطفا صبر کنید.")
-        try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            # Using a more stable model name string
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            
-            prompt = f"Update these Iranian car prices (in Millions of Tomans) to current market values for Feb 2026. Return ONLY a raw JSON object, no markdown, no backticks. Structure: {json.dumps(CAR_DB)}"
-            response = model.generate_content(prompt)
-            
-            # Extract JSON more robustly
-            clean_text = response.text.strip()
-            if clean_text.startswith("```"):
-                clean_text = re.sub(r'```json|```', '', clean_text).strip()
-            
-            new_db = json.loads(clean_text)
-            # In a real scenario, we'd save this to a file or global state
-            # For now, we confirm the AI successfully processed the data
-            await query.message.reply_text("✅ قیمت‌ها با موفقیت توسط هوش مصنوعی تحلیل و بروزرسانی شدند.")
-        except Exception as e:
-            logger.error(f"AI Update Error: {e}")
-            await query.message.reply_text(f"❌ خطا در آپدیت هوشمند: {str(e)}")
         return
 
     # --- ADMIN: SET SUPPORT ---
