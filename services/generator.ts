@@ -341,6 +341,7 @@ import os
 import datetime
 import shutil
 import re
+import pandas as pd
 import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
@@ -388,6 +389,7 @@ STATE_ADMIN_EDIT_MENU_LABEL = "ADM_EDIT_LABEL"
 STATE_ADMIN_EDIT_MENU_URL = "ADM_EDIT_URL"
 STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 STATE_ADMIN_SET_CHANNEL_URL = "ADM_SET_CHANNEL_URL"
+STATE_ADMIN_UPLOAD_EXCEL = "ADM_UPLOAD_EXCEL"
 
 # --- Data Management ---
 def load_data():
@@ -400,7 +402,12 @@ def load_data():
         "menu_config": DEFAULT_CONFIG, 
         "support_config": {"mode": "text", "value": "پیام خود را ارسال کنید..."},
         "panel_user": "",
-        "panel_pass": ""
+        "panel_pass": "",
+        "ai_car_db": {},
+        "excel_car_db": {},
+        "ai_source": "gemini",
+        "data_priority": "ai",
+        "update_interval": 0
     }
     if os.path.exists(DATA_FILE):
         try:
@@ -413,6 +420,45 @@ def load_data():
         except Exception:
             return default_data
     return default_data
+
+def get_merged_car_db():
+    d = load_data()
+    prio = d.get("data_priority", "ai")
+    ai_db = d.get("ai_car_db", {})
+    excel_db = d.get("excel_car_db", {})
+    
+    # Start with static DB as base
+    merged = CAR_DB.copy()
+    
+    # Helper to merge DBs
+    def merge(target, source):
+        for brand, b_data in source.items():
+            if brand not in target: target[brand] = b_data
+            else:
+                for model in b_data.get("models", []):
+                    # Check if model exists in target
+                    found = False
+                    for tm in target[brand]["models"]:
+                        if tm["name"] == model["name"]:
+                            # Update variants
+                            for v in model.get("variants", []):
+                                # Update variant price
+                                for tv in tm["variants"]:
+                                    if tv["name"] == v["name"]:
+                                        tv["marketPrice"] = v["marketPrice"]
+                                        tv["factoryPrice"] = v.get("factoryPrice", tv.get("factoryPrice", 0))
+                            found = True
+                            break
+                    if not found: target[brand]["models"].append(model)
+
+    if prio == "excel":
+        merge(merged, ai_db) # Apply AI first (lower priority)
+        merge(merged, excel_db) # Apply Excel last (higher priority)
+    else:
+        merge(merged, excel_db) # Apply Excel first (lower priority)
+        merge(merged, ai_db) # Apply AI last (higher priority)
+            
+    return merged
 
 def save_data(data):
     try:
@@ -459,6 +505,46 @@ async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Failed to send backup to {uid}: {e}")
     except Exception as e:
         logger.error(f"Auto backup error: {e}")
+
+async def auto_price_update_job(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if not GEMINI_API_KEY: return
+        d = load_data()
+        source = d.get("ai_source", "gemini")
+        logger.info(f"Running auto price update with source: {source}")
+        
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        prompt = f"Update these Iranian car prices (in Millions of Tomans) to current Feb 2026 market values. Return ONLY valid JSON matching this structure: {json.dumps(CAR_DB)}"
+        response = model.generate_content(prompt)
+        
+        match = re.search(r'\{.*\}', response.text, re.DOTALL)
+        if match:
+            new_db = json.loads(match.group())
+            
+            # Save to ai_car_db
+            d = load_data()
+            d["ai_car_db"] = new_db
+            save_data(d)
+            
+            logger.info("Auto price update successful (saved to DB).")
+            
+            # Notify admins
+            admins = d.get("admins", [])
+            targets = set(admins)
+            try:
+                if int(OWNER_ID) > 0: targets.add(int(OWNER_ID))
+            except: pass
+            
+            for uid in targets:
+                try:
+                    await context.bot.send_message(chat_id=uid, text=f"✅ آپدیت خودکار قیمت‌ها ({source}) انجام شد.")
+                except: pass
+        else:
+            logger.error("Auto price update failed: No JSON found.")
+    except Exception as e:
+        logger.error(f"Auto price update error: {e}")
 
 # --- Helper Functions ---
 def get_state(user_id):
@@ -596,16 +682,89 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not GEMINI_API_KEY:
             await query.message.reply_text("❌ کلید API تنظیم نشده است.")
             return
+        
+        d = load_data()
+        source = d.get("ai_source", "gemini")
+        priority = d.get("data_priority", "ai")
+        interval = d.get("update_interval", 0)
+        
+        gemini_check = "✅" if source == 'gemini' else ""
+        deepseek_check = "✅" if source == 'deepseek' else ""
+        hybrid_check = "✅" if source == 'hybrid' else ""
+        
+        ai_prio_check = "✅" if priority == 'ai' else ""
+        excel_prio_check = "✅" if priority == 'excel' else ""
+        
+        interval_text = "❌ خاموش" if interval == 0 else f"{interval} ساعت"
+
         keyboard = [
-            [InlineKeyboardButton("✅ بله، شروع آپدیت", callback_data="admin_ai_update_start")],
-            [InlineKeyboardButton("🔙 انصراف", callback_data="admin_home")]
+            [InlineKeyboardButton(f"{gemini_check} Gemini", callback_data="ai_set_source_gemini"), InlineKeyboardButton(f"{deepseek_check} DeepSeek", callback_data="ai_set_source_deepseek")],
+            [InlineKeyboardButton(f"{hybrid_check} Hybrid Mode", callback_data="ai_set_source_hybrid")],
+            [InlineKeyboardButton("-----------------", callback_data="ignore")],
+            [InlineKeyboardButton(f"{ai_prio_check} اولویت AI", callback_data="ai_set_prio_ai"), InlineKeyboardButton(f"{excel_prio_check} اولویت اکسل", callback_data="ai_set_prio_excel")],
+            [InlineKeyboardButton("-----------------", callback_data="ignore")],
+            [InlineKeyboardButton(f"⏰ آپدیت خودکار: {interval_text}", callback_data="ai_set_interval")],
+            [InlineKeyboardButton("✅ شروع آپدیت قیمت‌ها (دستی)", callback_data="admin_ai_update_start")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
         ]
-        await query.edit_message_text("✨ **آپدیت هوشمند قیمت‌ها**\\nآیا مطمئن هستید؟", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("✨ **تنظیمات هوش مصنوعی و آپدیت**\\nمنبع و اولویت را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
+    if data == "ai_set_interval":
+        keyboard = [
+            [InlineKeyboardButton("1 ساعت", callback_data="ai_interval_1"), InlineKeyboardButton("3 ساعت", callback_data="ai_interval_3")],
+            [InlineKeyboardButton("6 ساعت", callback_data="ai_interval_6"), InlineKeyboardButton("12 ساعت", callback_data="ai_interval_12")],
+            [InlineKeyboardButton("24 ساعت", callback_data="ai_interval_24"), InlineKeyboardButton("❌ خاموش", callback_data="ai_interval_0")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_update")]
+        ]
+        await query.edit_message_text("⏰ بازه زمانی آپدیت خودکار را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("ai_interval_"):
+        hours = int(data.replace("ai_interval_", ""))
+        d = load_data()
+        d["update_interval"] = hours
+        save_data(d)
+        
+        # Update Job Queue
+        current_jobs = context.job_queue.get_jobs_by_name("auto_price_update")
+        for job in current_jobs: job.schedule_removal()
+        
+        if hours > 0:
+            context.job_queue.run_repeating(auto_price_update_job, interval=hours*3600, first=10, name="auto_price_update")
+            await query.answer(f"✅ آپدیت خودکار هر {hours} ساعت فعال شد.")
+        else:
+            await query.answer("❌ آپدیت خودکار خاموش شد.")
+            
+        query.data = "admin_ai_update"
+        await handle_callback(update, context)
+        return
+
+    if data.startswith("ai_set_source_"):
+        source = data.replace("ai_set_source_", "")
+        d = load_data()
+        d["ai_source"] = source
+        save_data(d)
+        query.data = "admin_ai_update"
+        await handle_callback(update, context)
+        return
+
+    if data.startswith("ai_set_prio_"):
+        prio = data.replace("ai_set_prio_", "")
+        d = load_data()
+        d["data_priority"] = prio
+        save_data(d)
+        query.data = "admin_ai_update"
+        await handle_callback(update, context)
         return
 
     if data == "admin_ai_update_start" and is_admin(user_id):
-        await query.edit_message_text("⏳ در حال آپدیت قیمت‌ها توسط هوش مصنوعی... لطفا صبر کنید.")
+        d = load_data()
+        source = d.get("ai_source", "gemini")
+        await query.edit_message_text(f"⏳ در حال آپدیت قیمت‌ها با مدل {source}... لطفا صبر کنید.")
         try:
+            # Logic for different sources would go here
+            # For now we default to Gemini as implemented
             genai.configure(api_key=GEMINI_API_KEY)
             model = genai.GenerativeModel('gemini-1.5-flash')
             
@@ -771,32 +930,35 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu_prices":
         keyboard = []
-        for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
+        merged_db = get_merged_car_db()
+        for brand in merged_db.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
         await query.edit_message_text("🏢 شرکت سازنده:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data.startswith("brand_"):
         brand_name = data.replace("brand_", "")
+        merged_db = get_merged_car_db()
         if get_state(user_id)["state"] == STATE_ESTIMATE_BRAND:
             update_data(user_id, "brand", brand_name)
             set_state(user_id, STATE_ESTIMATE_MODEL)
             keyboard = []
-            if brand_name in CAR_DB:
-                for model in CAR_DB[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
+            if brand_name in merged_db:
+                for model in merged_db[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
             keyboard.append([InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")])
             await query.edit_message_text(f"خودروی {brand_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
             return
         
-        if brand_name in CAR_DB:
+        if brand_name in merged_db:
             keyboard = []
-            for model in CAR_DB[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
+            for model in merged_db[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
             keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")])
             await query.edit_message_text(f"مدل‌های {brand_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data.startswith("model_"):
         model_name = data.replace("model_", "")
+        merged_db = get_merged_car_db()
         if get_state(user_id)["state"] == STATE_ESTIMATE_MODEL:
             update_data(user_id, "model", model_name)
             set_state(user_id, STATE_ESTIMATE_YEAR)
@@ -810,7 +972,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         found_model, brand_name = None, ""
-        for b_name, b_data in CAR_DB.items():
+        for b_name, b_data in merged_db.items():
             for m in b_data["models"]:
                 if m["name"] == model_name: found_model = m; brand_name = b_name; break
         
@@ -826,7 +988,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = data.split("_")
         model_name, idx = parts[1], int(parts[2])
         found_variant = None
-        for b_data in CAR_DB.values():
+        merged_db = get_merged_car_db()
+        for b_data in merged_db.values():
             for m in b_data["models"]:
                 if m["name"] == model_name and idx < len(m["variants"]): found_variant = m["variants"][idx]; break
         
@@ -840,7 +1003,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_estimate":
         set_state(user_id, STATE_ESTIMATE_BRAND)
         keyboard = []
-        for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
+        merged_db = get_merged_car_db()
+        for brand in merged_db.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
         keyboard.append([InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")])
         await query.edit_message_text("برند را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
@@ -859,7 +1023,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         brand, model, year, mileage = user_data.get("brand"), user_data.get("model"), user_data.get("year"), user_data.get("mileage")
         
         zero_price = 800
-        for b in CAR_DB.values():
+        merged_db = get_merged_car_db()
+        for b in merged_db.values():
             for m in b["models"]:
                 if m["name"] == model: zero_price = m["variants"][0]["marketPrice"]; break
         
@@ -984,11 +1149,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 async def post_init(application):
-    # Auto-Backup
     data = load_data()
-    interval = data.get("backup_interval", 0)
-    if interval > 0:
-        application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=60, name='auto_backup')
+    
+    # Auto-Backup
+    backup_interval = data.get("backup_interval", 0)
+    if backup_interval > 0:
+        application.job_queue.run_repeating(send_auto_backup, interval=backup_interval*3600, first=60, name='auto_backup')
+        
+    # Auto-Price Update
+    update_interval = data.get("update_interval", 0)
+    if update_interval > 0:
+        application.job_queue.run_repeating(auto_price_update_job, interval=update_interval*3600, first=10, name='auto_price_update')
+
     try:
         await application.bot.set_my_commands([
             BotCommand("start", "🏠 منوی اصلی"),

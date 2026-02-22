@@ -96,7 +96,7 @@ class DatabaseManager:
             return "full"
         d = self.load_data()
         if user_id in d.get("admins", []):
-            return d.get("roles", {}).get(str(user_id), "editor")
+            return d.get("roles", {}).get(str(user_id), "editor") # Default to editor if no role is set
         return None
 
     def is_admin(self, user_id, owner_id):
@@ -106,5 +106,26 @@ class DatabaseManager:
         role = self.get_admin_role(user_id, owner_id)
         if role == "full": return True
         return role in required_roles
+
+    def add_admin(self, user_id, role):
+        d = self.load_data()
+        if 'admins' not in d: d['admins'] = []
+        if 'roles' not in d: d['roles'] = {}
+        if user_id not in d['admins']:
+            d['admins'].append(user_id)
+        d['roles'][str(user_id)] = role
+        self.save_data(d)
+
+    def remove_admin(self, user_id):
+        d = self.load_data()
+        if user_id in d.get('admins', []):
+            d['admins'].remove(user_id)
+            if str(user_id) in d.get('roles', {}):
+                del d['roles'][str(user_id)]
+            self.save_data(d)
+
+    def get_all_admins(self):
+        d = self.load_data()
+        return d.get('admins', [])
 
 db = DatabaseManager()

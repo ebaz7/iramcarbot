@@ -150,12 +150,56 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if data == "admin_manage_admins" and role == ROLE_FULL:
         d = db.load_data()
         admins = d.get('admins', [])
-        text = f"👥 **مدیریت ادمین‌ها**\n\nتعداد ادمین‌ها: {len(admins)}\nلیست IDها: {', '.join(map(str, admins))}"
+        roles = d.get('roles', {})
+        text = "👥 **مدیریت ادمین‌ها**\n\n"
         keyboard = [
-            [InlineKeyboardButton("➕ افزودن ادمین جدید", callback_data="admin_add_new")],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
+            [InlineKeyboardButton("➕ افزودن ادمین جدید", callback_data="admin_add_new")]
         ]
+        if not admins:
+            text += "در حال حاضر هیچ ادمینی وجود ندارد."
+        else:
+            for admin_id in admins:
+                admin_role = roles.get(str(admin_id), 'Not Set')
+                keyboard.append([
+                    InlineKeyboardButton(f"{admin_id} ({admin_role})", callback_data=f"noop"),
+                    InlineKeyboardButton("🗑", callback_data=f"admin_remove_{admin_id}"),
+                    InlineKeyboardButton("🔄", callback_data=f"admin_change_role_{admin_id}")
+                ])
+        
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")])
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
+    if data.startswith("admin_remove_") and role == ROLE_FULL:
+        admin_id_to_remove = int(data.split('_')[2])
+        db.remove_admin(admin_id_to_remove)
+        await query.answer("ادمین حذف شد")
+        query.data = "admin_manage_admins"
+        await handle_admin_callback(update, context, owner_id)
+        return
+
+    if data.startswith("admin_change_role_") and role == ROLE_FULL:
+        admin_id_to_change = int(data.split('_')[3])
+        set_state(user_id, STATE_ADMIN_CHANGE_ROLE)
+        update_data(user_id, "admin_id", admin_id_to_change)
+        keyboard = [
+            [InlineKeyboardButton("Full Admin", callback_data="set_role_full")],
+            [InlineKeyboardButton("Editor Admin", callback_data="set_role_editor")],
+            [InlineKeyboardButton("Support Admin", callback_data="set_role_support")]
+        ]
+        await query.edit_message_text("لطفا نقش جدید را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("set_role_") and role == ROLE_FULL:
+        from state_manager import get_state
+        state = get_state(user_id)
+        if state['state'] == STATE_ADMIN_CHANGE_ROLE:
+            new_role = data.split('_')[2]
+            admin_id = state['data']['admin_id']
+            db.add_admin(admin_id, new_role) # add_admin also updates the role
+            await query.answer(f"نقش ادمین به {new_role} تغییر کرد")
+            query.data = "admin_manage_admins"
+            await handle_admin_callback(update, context, owner_id)
         return
 
     if data == "admin_add_new" and role == ROLE_FULL:

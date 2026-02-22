@@ -224,22 +224,22 @@ def get_ai_control_menu(user_id):
     keyboard = [
         [InlineKeyboardButton("⚙️ منبع دیتا (Source)", callback_data="noop")],
         [
-            InlineKeyboardButton(f"{"✅" if source == 'gemini' else ''} Gemini", callback_data="ai_set_source_gemini"),
-            InlineKeyboardButton(f"{"✅" if source == 'deepseek' else ''} DeepSeek", callback_data="ai_set_source_deepseek"),
-            InlineKeyboardButton(f"{"✅" if source == 'hybrid' else ''} Hybrid", callback_data="ai_set_source_hybrid")
+            InlineKeyboardButton(("✅ " if source == 'gemini' else '') + "Gemini", callback_data="ai_set_source_gemini"),
+            InlineKeyboardButton(("✅ " if source == 'deepseek' else '') + "DeepSeek", callback_data="ai_set_source_deepseek"),
+            InlineKeyboardButton(("✅ " if source == 'hybrid' else '') + "Hybrid", callback_data="ai_set_source_hybrid")
         ],
         [InlineKeyboardButton("⚖️ اولویت (Priority)", callback_data="noop")],
         [
-            InlineKeyboardButton(f"{"✅" if priority == 'excel' else ''} اکسل", callback_data="ai_set_priority_excel"),
-            InlineKeyboardButton(f"{"✅" if priority == 'ai' else ''} هوش مصنوعی", callback_data="ai_set_priority_ai")
+            InlineKeyboardButton(("✅ " if priority == 'excel' else '') + "اکسل", callback_data="ai_set_priority_excel"),
+            InlineKeyboardButton(("✅ " if priority == 'ai' else '') + "هوش مصنوعی", callback_data="ai_set_priority_ai")
         ],
         [InlineKeyboardButton("⏰ زمانبندی آپدیت خودکار", callback_data="noop")],
         [
-            InlineKeyboardButton(f"{"✅" if schedule == 1 else ''} 1h", callback_data="ai_set_schedule_1"),
-            InlineKeyboardButton(f"{"✅" if schedule == 3 else ''} 3h", callback_data="ai_set_schedule_3"),
-            InlineKeyboardButton(f"{"✅" if schedule == 6 else ''} 6h", callback_data="ai_set_schedule_6"),
-            InlineKeyboardButton(f"{"✅" if schedule == 12 else ''} 12h", callback_data="ai_set_schedule_12"),
-            InlineKeyboardButton(f"{"✅" if schedule == 24 else ''} 24h", callback_data="ai_set_schedule_24")
+            InlineKeyboardButton(("✅ " if schedule == 1 else '') + "1h", callback_data="ai_set_schedule_1"),
+            InlineKeyboardButton(("✅ " if schedule == 3 else '') + "3h", callback_data="ai_set_schedule_3"),
+            InlineKeyboardButton(("✅ " if schedule == 6 else '') + "6h", callback_data="ai_set_schedule_6"),
+            InlineKeyboardButton(("✅ " if schedule == 12 else '') + "12h", callback_data="ai_set_schedule_12"),
+            InlineKeyboardButton(("✅ " if schedule == 24 else '') + "24h", callback_data="ai_set_schedule_24")
         ],
         [InlineKeyboardButton("🚫 خاموش کردن زمانبندی", callback_data="ai_set_schedule_0")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
