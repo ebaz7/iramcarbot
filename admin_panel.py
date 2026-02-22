@@ -6,7 +6,8 @@ from state_manager import (
     STATE_ADMIN_EDIT_MENU_LABEL, STATE_ADMIN_EDIT_MENU_URL,
     STATE_ADMIN_ADD_ADMIN, STATE_ADMIN_SPONSOR_NAME,
     STATE_ADMIN_BROADCAST, STATE_ADMIN_SET_SUPPORT,
-    STATE_ADMIN_FJ_ID, STATE_ADMIN_FJ_LINK
+    STATE_ADMIN_FJ_ID, STATE_ADMIN_FJ_LINK,
+    STATE_ADMIN_SET_ECONOMY_VAL, STATE_ADMIN_RESTORE_USER, STATE_ADMIN_RESTORE_PASS
 )
 
 # Admin Roles
@@ -22,6 +23,7 @@ async def get_admin_main_menu(user_id, owner_id):
         keyboard.append([InlineKeyboardButton("⚙️ مدیریت منو و مینی‌اپ", callback_data="admin_menus")])
         keyboard.append([InlineKeyboardButton("📢 تنظیمات کانال و جوین اجباری", callback_data="admin_channel_settings")])
         keyboard.append([InlineKeyboardButton("✨ تنظیمات هوش مصنوعی", callback_data="admin_ai_settings")])
+        keyboard.append([InlineKeyboardButton("💰 مدیریت طلا و ارز", callback_data="admin_economy_menu")])
         keyboard.append([InlineKeyboardButton("📂 آپدیت قیمت (اکسل)", callback_data="admin_update_excel")])
         keyboard.append([InlineKeyboardButton("📞 تنظیم پشتیبانی", callback_data="admin_set_support")])
         keyboard.append([InlineKeyboardButton("👥 مدیریت ادمین‌ها", callback_data="admin_manage_admins")])
@@ -189,9 +191,57 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer()
         return
 
-    if data == "admin_fj_set_link" and role == ROLE_FULL:
-        set_state(user_id, STATE_ADMIN_FJ_LINK)
-        await query.message.reply_text("🔗 لینک دعوت کانال را بفرستید:")
+    if data == "admin_backup_menu" and role == ROLE_FULL:
+        text = "💾 **مدیریت بکاپ و بازیابی**\n\nمی‌توانید همین حالا بکاپ بگیرید یا دیتابیس را بازیابی کنید:"
+        keyboard = [
+            [InlineKeyboardButton("📤 دریافت بکاپ آنی (JSON)", callback_data="admin_backup_now")],
+            [InlineKeyboardButton("📥 بازیابی دیتابیس (Restore)", callback_data="admin_restore_start")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
+    if data == "admin_backup_now" and role == ROLE_FULL:
+        import shutil
+        from database_manager import DATA_FILE
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"backup_{timestamp}.json"
+        shutil.copy2(DATA_FILE, backup_name)
+        with open(backup_name, 'rb') as f:
+            await context.bot.send_document(chat_id=user_id, document=f, caption=f"✅ بکاپ کامل دیتابیس\n📅 {timestamp}")
+        os.remove(backup_name)
+        await query.answer("بکاپ ارسال شد")
+        return
+
+    if data == "admin_restore_start" and role == ROLE_FULL:
+        set_state(user_id, STATE_ADMIN_RESTORE_USER)
+        await query.message.reply_text("🔐 نام کاربری امنیتی (Security Username) را وارد کنید:")
+        await query.answer()
+        return
+
+    if data == "admin_economy_menu" and role == ROLE_FULL:
+        d = db.load_data()
+        e = d.get('economy_db', {})
+        text = "💰 **مدیریت قیمت طلا و ارز**\n\nمقادیر فعلی را ویرایش کنید:"
+        keyboard = []
+        # Gold
+        gold = e.get('gold', {})
+        keyboard.append([InlineKeyboardButton(f"🌕 طلا 18 عیار: {gold.get('18k', 0):,}", callback_data="eco_set_gold_18k")])
+        keyboard.append([InlineKeyboardButton(f"🪙 سکه امامی: {gold.get('coin_emami', 0):,}", callback_data="eco_set_gold_coin_emami")])
+        # Currency
+        curr = e.get('currency', {})
+        keyboard.append([InlineKeyboardButton(f"💵 دلار: {curr.get('usd', 0):,}", callback_data="eco_set_curr_usd")])
+        keyboard.append([InlineKeyboardButton(f"💶 یورو: {curr.get('eur', 0):,}", callback_data="eco_set_curr_eur")])
+        
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")])
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
+    if data.startswith("eco_set_") and role == ROLE_FULL:
+        key = data.replace("eco_set_", "")
+        set_state(user_id, STATE_ADMIN_SET_ECONOMY_VAL)
+        update_data(user_id, "eco_key", key)
+        await query.message.reply_text(f"🔢 مقدار جدید برای {key} را وارد کنید (فقط عدد):")
         await query.answer()
         return
 

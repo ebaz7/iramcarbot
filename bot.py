@@ -21,6 +21,7 @@ from state_manager import (
     STATE_ADMIN_BROADCAST, STATE_ADMIN_EDIT_MENU_LABEL, STATE_ADMIN_EDIT_MENU_URL,
     STATE_ADMIN_SET_SUPPORT, STATE_ADMIN_SET_CHANNEL_URL,
     STATE_ADMIN_FJ_ID, STATE_ADMIN_FJ_LINK,
+    STATE_ADMIN_SET_ECONOMY_VAL, STATE_ADMIN_RESTORE_USER, STATE_ADMIN_RESTORE_PASS,
     STATE_ADMIN_UPLOAD_EXCEL_CARS, STATE_ADMIN_UPLOAD_EXCEL_MOBILE
 )
 
@@ -66,11 +67,15 @@ def get_main_menu(user_id):
     if c["estimate"]["active"]: row2.append(InlineKeyboardButton(c["estimate"]["label"], callback_data="menu_estimate"))
     if row2: keyboard.append(row2)
 
-    # Row 3: Mobile
+    # Row 3: Mobile + Economy
     row3 = []
     if c.get("mobile_webapp", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_webapp"]["label"], web_app=WebAppInfo(url=c["mobile_webapp"]["url"])))
     if c.get("mobile_list", {}).get("active"): row3.append(InlineKeyboardButton(c["mobile_list"]["label"], callback_data="menu_mobile_list"))
     if row3: keyboard.append(row3)
+
+    row3_2 = []
+    if c.get("economy", {}).get("active"): row3_2.append(InlineKeyboardButton(c["economy"]["label"], callback_data="menu_economy"))
+    if row3_2: keyboard.append(row3_2)
 
     # Row 4: Utilities + Support
     row4 = []
@@ -156,6 +161,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # --- USER FLOWS ---
+    if data == "menu_economy":
+        d = db.load_data()
+        e = d.get("economy_db", {})
+        gold = e.get("gold", {})
+        curr = e.get("currency", {})
+        text = (f"💰 **قیمت طلا، سکه و ارز**\n\n"
+                f"🌕 **طلا و سکه:**\n"
+                f"🔸 طلا 18 عیار: {gold.get('18k', 0):,} ت\n"
+                f"🔸 سکه امامی: {gold.get('coin_emami', 0):,} ت\n\n"
+                f"💵 **ارزهای شاخص:**\n"
+                f"🔹 دلار آمریکا: {curr.get('usd', 0):,} ت\n"
+                f"🔹 یورو: {curr.get('eur', 0):,} ت\n\n"
+                f"📅 آخرین بروزرسانی: {jdatetime.datetime.now().strftime('%H:%M:%S')}")
+        keyboard = [[InlineKeyboardButton("🔄 بروزرسانی", callback_data="menu_economy")],
+                    [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
     if data == "menu_prices":
         d = db.load_data()
         car_db = d.get("car_db", {})
@@ -368,7 +391,42 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # --- ADMIN: SET SUPPORT ---
-    if state_info["state"] == STATE_ADMIN_SET_SUPPORT:
+    if state_info["state"] == STATE_ADMIN_SET_ECONOMY_VAL:
+        try:
+            val = int(text.replace(",", ""))
+            key = state_info["data"].get("eco_key")
+            d = db.load_data()
+            if "gold_" in key:
+                k = key.replace("gold_", "")
+                d["economy_db"]["gold"][k] = val
+            elif "curr_" in key:
+                k = key.replace("curr_", "")
+                d["economy_db"]["currency"][k] = val
+            db.save_data(d)
+            await update.message.reply_text(f"✅ مقدار {key} به {val:,} تغییر یافت.")
+        except: await update.message.reply_text("❌ خطا: فقط عدد وارد کنید.")
+        reset_state(user_id)
+        return
+
+    if state_info["state"] == STATE_ADMIN_RESTORE_USER:
+        d = db.load_data()
+        if text == d.get("panel_user"):
+            set_state(user_id, STATE_ADMIN_RESTORE_PASS)
+            await update.message.reply_text("🔑 حالا رمز عبور امنیتی (Security Password) را وارد کنید:")
+        else:
+            await update.message.reply_text("❌ نام کاربری اشتباه است.")
+            reset_state(user_id)
+        return
+
+    if state_info["state"] == STATE_ADMIN_RESTORE_PASS:
+        d = db.load_data()
+        if text == d.get("panel_pass"):
+            await update.message.reply_text("📂 تایید شد. حالا فایل دیتابیس (JSON) را ارسال کنید.")
+            # State remains but user needs to send document
+        else:
+            await update.message.reply_text("❌ رمز عبور اشتباه است.")
+            reset_state(user_id)
+        return
         d = db.load_data()
         mode = "link" if text.startswith("http") else "text"
         if text.startswith("@"):
@@ -484,24 +542,36 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- SEARCH HANDLER ---
     if state_info["state"] == STATE_SEARCH:
-        # Simple search logic
         d = db.load_data()
         results = []
+        search_term = text.lower()
+        
         # Search in cars
         for brand, b_data in d.get("car_db", {}).items():
-            if text.lower() in brand.lower(): results.append(f"🚗 {brand}")
-            for model in b_data["models"]:
-                if text.lower() in model["name"].lower(): results.append(f"🚗 {brand} {model['name']}")
+            if search_term in brand.lower():
+                results.append(f"🏢 **{brand}** (برند)")
+            for model in b_data.get("models", []):
+                if search_term in model["name"].lower():
+                    results.append(f"🚗 {brand} **{model['name']}**")
+                for variant in model.get("variants", []):
+                    if search_term in variant["name"].lower():
+                        results.append(f"🔹 {brand} {model['name']} - **{variant['name']}**")
+        
         # Search in mobile
         for brand, b_data in d.get("mobile_db", {}).items():
-            if text.lower() in brand.lower(): results.append(f"📱 {brand}")
-            for model in b_data["models"]:
-                if text.lower() in model["name"].lower(): results.append(f"📱 {brand} {model['name']}")
+            if search_term in brand.lower():
+                results.append(f"📱 **{brand}** (برند موبایل)")
+            for model in b_data.get("models", []):
+                if search_term in model["name"].lower():
+                    results.append(f"📲 {brand} **{model['name']}**")
         
         if results:
-            await update.message.reply_text("🔍 نتایج جستجو:\n" + "\n".join(results[:10]))
+            text_res = "🔍 **نتایج یافت شده:**\n\n" + "\n".join(results[:15])
+            if len(results) > 15: text_res += "\n\n... و موارد بیشتر"
         else:
-            await update.message.reply_text("❌ موردی یافت نشد.")
+            text_res = "❌ متاسفانه موردی با این نام یافت نشد."
+            
+        await update.message.reply_text(text_res, parse_mode='Markdown', reply_markup=get_main_menu(user_id))
         reset_state(user_id)
         return
 
@@ -510,6 +580,21 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state_info = get_state(user_id)
     
     if not db.is_admin(user_id, OWNER_ID): return
+
+    if state_info["state"] == STATE_ADMIN_RESTORE_PASS:
+        try:
+            import json
+            new_data = json.loads(file_bytes.decode('utf-8'))
+            # Basic validation
+            if "admins" in new_data and "menu_config" in new_data:
+                db.save_data(new_data)
+                await update.message.reply_text("✅ دیتابیس با موفقیت بازیابی شد. ربات آماده استفاده است.")
+            else:
+                await update.message.reply_text("❌ فایل معتبر نیست (ساختار دیتابیس یافت نشد).")
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطا در بازیابی: {str(e)}")
+        reset_state(user_id)
+        return
 
     if state_info["state"] in [STATE_ADMIN_UPLOAD_EXCEL_CARS, STATE_ADMIN_UPLOAD_EXCEL_MOBILE]:
         niche = 'cars' if state_info["state"] == STATE_ADMIN_UPLOAD_EXCEL_CARS else 'mobile'
