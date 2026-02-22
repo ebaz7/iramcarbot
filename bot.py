@@ -5,6 +5,8 @@ import os
 import datetime
 import shutil
 import re
+import jdatetime
+import pandas as pd
 import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
@@ -65,6 +67,7 @@ STATE_ADMIN_EDIT_MENU_LABEL = "ADM_EDIT_LABEL"
 STATE_ADMIN_EDIT_MENU_URL = "ADM_EDIT_URL"
 STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
 STATE_ADMIN_SET_CHANNEL_URL = "ADM_SET_CHANNEL_URL"
+STATE_ADMIN_WAIT_EXCEL = "ADM_WAIT_EXCEL"
 
 # --- Data Management ---
 def load_data():
@@ -173,9 +176,10 @@ def get_main_menu(user_id):
     
     if row4: keyboard.append(row4)
 
-    if is_admin(user_id): keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
-    if is_admin(user_id) and GEMINI_API_KEY:
-        keyboard.append([InlineKeyboardButton("✨ آپدیت هوشمند قیمت (AI)", callback_data="admin_ai_update")])
+    # Admin Button
+    if is_admin(user_id):
+        keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin_home")])
+
     
     # Footer: Channel & Sponsor
     footer = []
@@ -191,6 +195,44 @@ def get_main_menu(user_id):
     if footer: keyboard.append(footer)
     
     return InlineKeyboardMarkup(keyboard)
+
+def get_ai_control_menu(user_id):
+    d = load_data()
+    conf = d.get("ai_config", {})
+    source = conf.get("source", "gemini")
+    priority = conf.get("priority", "excel")
+    schedule = conf.get("schedule", 0)
+
+    keyboard = [
+        [InlineKeyboardButton("⚙️ منبع دیتا (Source)", callback_data="noop")],
+        [
+            InlineKeyboardButton(f"{"✅" if source == 'gemini' else ''} Gemini", callback_data="ai_set_source_gemini"),
+            InlineKeyboardButton(f"{"✅" if source == 'deepseek' else ''} DeepSeek", callback_data="ai_set_source_deepseek"),
+            InlineKeyboardButton(f"{"✅" if source == 'hybrid' else ''} Hybrid", callback_data="ai_set_source_hybrid")
+        ],
+        [InlineKeyboardButton("⚖️ اولویت (Priority)", callback_data="noop")],
+        [
+            InlineKeyboardButton(f"{"✅" if priority == 'excel' else ''} 엑셀", callback_data="ai_set_priority_excel"),
+            InlineKeyboardButton(f"{"✅" if priority == 'ai' else ''} هوش مصنوعی", callback_data="ai_set_priority_ai")
+        ],
+        [InlineKeyboardButton("⏰ زمانبندی آپدیت خودکار", callback_data="noop")],
+        [
+            InlineKeyboardButton(f"{"✅" if schedule == 1 else ''} 1h", callback_data="ai_set_schedule_1"),
+            InlineKeyboardButton(f"{"✅" if schedule == 3 else ''} 3h", callback_data="ai_set_schedule_3"),
+            InlineKeyboardButton(f"{"✅" if schedule == 6 else ''} 6h", callback_data="ai_set_schedule_6"),
+            InlineKeyboardButton(f"{"✅" if schedule == 12 else ''} 12h", callback_data="ai_set_schedule_12"),
+            InlineKeyboardButton(f"{"✅" if schedule == 24 else ''} 24h", callback_data="ai_set_schedule_24")
+        ],
+        [InlineKeyboardButton("🚫 خاموش کردن زمانبندی", callback_data="ai_set_schedule_0")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    if os.path.exists(DATA_FILE):
+        await context.bot.send_document(chat_id=job.chat_id, document=open(DATA_FILE, 'rb'), caption=f"💾 Auto-Backup ({job.name})")
+
 
 # --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -229,7 +271,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("⚙️ مدیریت منو", callback_data="admin_menus")],
             [InlineKeyboardButton("📢 تنظیمات کانال", callback_data="admin_channel_settings")],
-            [InlineKeyboardButton("✨ آپدیت هوشمند (AI)", callback_data="admin_ai_update")],
+            [InlineKeyboardButton("✨ مرکز کنترل AI", callback_data="admin_ai_control")],
             [InlineKeyboardButton("📂 آپدیت قیمت (اکسل)", callback_data="admin_update_excel")],
             [InlineKeyboardButton("➕ افزودن تکی خودرو", callback_data="admin_add_car")],
             [InlineKeyboardButton("📞 تنظیم پشتیبانی", callback_data="admin_set_support")],
@@ -240,6 +282,43 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 خروج", callback_data="main_menu")]
         ]
         await query.edit_message_text("🛠 **پنل مدیریت**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
+    if data == "admin_ai_control" and is_admin(user_id):
+        await query.edit_message_text("✨ **مرکز کنترل هوش مصنوعی**", reply_markup=get_ai_control_menu(user_id), parse_mode='Markdown')
+        return
+
+    if data == "admin_update_excel" and is_admin(user_id):
+        set_state(user_id, STATE_ADMIN_WAIT_EXCEL)
+        await query.message.reply_text("📂 لطفا فایل اکسل (xlsx) را با فرمت مشخص شده ارسال کنید.")
+        return
+
+    if data.startswith("ai_set_source_") and is_admin(user_id):
+        source = data.replace("ai_set_source_", "")
+        d = load_data()
+        if "ai_config" not in d: d["ai_config"] = {}
+        d["ai_config"]["source"] = source
+        save_data(d)
+        await query.edit_message_text("✨ **مرکز کنترل هوش مصنوعی**", reply_markup=get_ai_control_menu(user_id), parse_mode='Markdown')
+        return
+
+    if data.startswith("ai_set_priority_") and is_admin(user_id):
+        priority = data.replace("ai_set_priority_", "")
+        d = load_data()
+        if "ai_config" not in d: d["ai_config"] = {}
+        d["ai_config"]["priority"] = priority
+        save_data(d)
+        await query.edit_message_text("✨ **مرکز کنترل هوش مصنوعی**", reply_markup=get_ai_control_menu(user_id), parse_mode='Markdown')
+        return
+
+    if data.startswith("ai_set_schedule_") and is_admin(user_id):
+        hours = int(data.replace("ai_set_schedule_", ""))
+        d = load_data()
+        if "ai_config" not in d: d["ai_config"] = {}
+        d["ai_config"]["schedule"] = hours
+        save_data(d)
+        # Logic to restart the job queue would be needed here
+        await query.edit_message_text("✨ **مرکز کنترل هوش مصنوعی**", reply_markup=get_ai_control_menu(user_id), parse_mode='Markdown')
         return
 
     if data == "admin_channel_settings" and is_admin(user_id):
@@ -447,12 +526,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"📞 **اطلاعات پشتیبانی:**\\n\\n{text_val}", parse_mode='Markdown')
         return
 
-    # --- MOBILE FLOW ---
+    # --- MOBILE FLOW (AI-Powered) ---
     if data == "menu_mobile_list":
-        keyboard = []
-        for brand in MOBILE_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"mob_brand_{brand}")])
-        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
-        await query.edit_message_text("📱 برند موبایل را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+        d = load_data()
+        conf = d.get("ai_config", {})
+        priority = conf.get("priority", "excel")
+
+        if priority == 'ai' and GEMINI_API_KEY:
+            await query.edit_message_text("⏳ در حال دریافت لیست قیمت موبایل از هوش مصنوعی...")
+            try:
+                genai.configure(api_key=GEMINI_API_KEY)
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                prompt = f"لیست قیمت به‌روز گوشی‌های موبایل موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی برند ارائه بده."
+                response = model.generate_content(prompt)
+                await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
+            except Exception as e:
+                await query.edit_message_text(f"❌ خطا در ارتباط با هوش مصنوعی: {e}")
+        else:
+            keyboard = []
+            for brand in MOBILE_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"mob_brand_{brand}")])
+            keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
+            await query.edit_message_text("📱 برند موبایل (از دیتابیس داخلی):", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data.startswith("mob_brand_"):
@@ -485,12 +579,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-    # --- CAR ESTIMATION FLOW ---
+    # --- CAR PRICE LIST (AI-Powered) ---
     if data == "menu_prices":
-        keyboard = []
-        for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
-        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
-        await query.edit_message_text("🏢 شرکت سازنده:", reply_markup=InlineKeyboardMarkup(keyboard))
+        d = load_data()
+        conf = d.get("ai_config", {})
+        priority = conf.get("priority", "excel")
+
+        if priority == 'ai' and GEMINI_API_KEY:
+            await query.edit_message_text("⏳ در حال دریافت لیست قیمت خودرو از هوش مصنوعی...")
+            try:
+                genai.configure(api_key=GEMINI_API_KEY)
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                prompt = f"لیست قیمت به‌روز خودروهای ایرانی و خارجی موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی شرکت سازنده ارائه بده."
+                response = model.generate_content(prompt)
+                await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
+            except Exception as e:
+                await query.edit_message_text(f"❌ خطا در ارتباط با هوش مصنوعی: {e}")
+        else:
+            keyboard = []
+            for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
+            keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
+            await query.edit_message_text("🏢 شرکت سازنده (از دیتابیس داخلی):", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data.startswith("brand_"):
@@ -710,6 +819,70 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: await update.message.reply_text("⚠️ فقط عدد وارد کنید.")
         return
 
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state_info = get_state(user_id)
+
+    if is_admin(user_id) and state_info["state"] == STATE_ADMIN_WAIT_EXCEL:
+        doc = update.message.document
+        if not doc.file_name.endswith(('.xlsx', '.xls')):
+            await update.message.reply_text("❌ فرمت فایل نامعتبر است. لطفا فایل اکسل (xlsx) ارسال کنید.")
+            return
+
+        try:
+            file = await context.bot.get_file(doc.file_id)
+            file_path = f"{doc.file_id}.xlsx"
+            await file.download_to_drive(file_path)
+
+            df = pd.read_excel(file_path)
+            required_columns = ['brand', 'model', 'variant', 'factoryPrice', 'marketPrice']
+            if not all(col in df.columns for col in required_columns):
+                await update.message.reply_text(f"❌ فایل اکسل ناقص است. ستون‌های مورد نیاز: {required_columns}")
+                os.remove(file_path)
+                return
+
+            global CAR_DB
+            CAR_DB = {}
+            for index, row in df.iterrows():
+                brand = row['brand']
+                model_name = row['model']
+                variant_name = row['variant']
+                
+                if brand not in CAR_DB:
+                    CAR_DB[brand] = {"models": []}
+                
+                model_obj = next((m for m in CAR_DB[brand]["models"] if m["name"] == model_name), None)
+                if not model_obj:
+                    model_obj = {"name": model_name, "variants": []}
+                    CAR_DB[brand]["models"].append(model_obj)
+                
+                model_obj["variants"].append({
+                    "name": variant_name,
+                    "factoryPrice": row['factoryPrice'],
+                    "marketPrice": row['marketPrice']
+                })
+
+            save_car_db()
+            await update.message.reply_text(f"✅ فایل اکسل با موفقیت پردازش شد. {len(df)} رکورد بروزرسانی شد.")
+            os.remove(file_path)
+
+        except Exception as e:
+            logger.error(f"Excel Processing Error: {e}")
+            await update.message.reply_text(f"❌ خطایی در پردازش فایل اکسل رخ داد: {e}")
+        
+        finally:
+            reset_state(user_id)
+
+def save_car_db():
+    # This is a placeholder. In a real application, you would save the CAR_DB to a file.
+    # For example, to a JSON file:
+    try:
+        with open('car_db.json', 'w', encoding='utf-8') as f:
+            json.dump(CAR_DB, f, ensure_ascii=False, indent=4)
+        logger.info("Car database saved successfully.")
+    except Exception as e:
+        logger.error(f"Error saving car database: {e}")
+
 async def post_init(application):
     # Auto-Backup
     data = load_data()
@@ -733,5 +906,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("fixmenu", fix_menu))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
     print("Bot is running...")
     app.run_polling()

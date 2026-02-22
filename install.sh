@@ -89,25 +89,26 @@ function configure_bot() {
     
     # 1. Telegram Token
     if grep -q "REPLACE_ME_TOKEN" bot.py; then
-        read -p "Enter Telegram Bot Token: " BOT_TOKEN
-        read -p "Enter Admin Numeric ID: " ADMIN_ID
-        read -p "Enter Gemini API Key (Optional, for AI prices): " GEMINI_KEY
+        read -p "1) Enter Telegram Bot Token: " BOT_TOKEN
+        read -p "2) Enter Main Admin Numeric ID: " ADMIN_ID
+        read -p "3) Enter Gemini API Key: " GEMINI_KEY
+        read -p "4) Enter DeepSeek API Key (Optional): " DEEPSEEK_KEY
         
-        sed -i "s/REPLACE_ME_TOKEN/$BOT_TOKEN/g" bot.py
-        sed -i "s/OWNER_ID = 0/OWNER_ID = $ADMIN_ID/g" bot.py
-        sed -i "s/GEMINI_API_KEY = ''/GEMINI_API_KEY = '$GEMINI_KEY'/g" bot.py
+        sed -i "s|REPLACE_ME_TOKEN|$BOT_TOKEN|g" bot.py
+        sed -i "s|OWNER_ID = 0|OWNER_ID = $ADMIN_ID|g" bot.py
+        sed -i "s|GEMINI_API_KEY = ''|GEMINI_API_KEY = '$GEMINI_KEY'|g" bot.py
         echo -e "${GREEN}✅ Configuration Saved.${NC}"
     else
         echo -e "${GREEN}Telegram Token already configured.${NC}"
     fi
 
-    # 2. SECURITY SETUP (MANDATORY REQUESTED)
-    echo -e "\n${YELLOW}🔐 PANEL SECURITY SETUP${NC}"
+    # 5 & 6. SECURITY SETUP (MANDATORY REQUESTED)
+    echo -e "\n${YELLOW}🔐 PANEL SECURITY SETUP (Steps 5 & 6)${NC}"
     echo "Set a Username and Password. This is required for RESTORING backups securely."
     
     while true; do
-        read -p "Set Panel Username: " P_USER
-        read -s -p "Set Panel Password: " P_PASS
+        read -p "5) Set Security Username: " P_USER
+        read -s -p "6) Set Security Password: " P_PASS
         echo ""
         read -s -p "Confirm Password:   " P_PASS2
         echo ""
