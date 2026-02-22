@@ -115,6 +115,24 @@ def save_data(data):
     except Exception as e:
         logger.error(f"❌ Error saving data: {e}")
 
+def save_car_db():
+    try:
+        with open('car_db.json', 'w', encoding='utf-8') as f:
+            json.dump(CAR_DB, f, ensure_ascii=False, indent=4)
+        logger.info("Car database saved successfully.")
+    except Exception as e:
+        logger.error(f"Error saving car database: {e}")
+
+def load_car_db():
+    global CAR_DB
+    try:
+        if os.path.exists('car_db.json'):
+            with open('car_db.json', 'r', encoding='utf-8') as f:
+                CAR_DB = json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading car database: {e}")
+
+
 def register_user(user_id):
     d = load_data()
     if user_id not in d.get("users", []):
@@ -838,16 +856,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally:
             reset_state(user_id)
 
-def save_car_db():
-    # This is a placeholder. In a real application, you would save the CAR_DB to a file.
-    # For example, to a JSON file:
-    try:
-        with open('car_db.json', 'w', encoding='utf-8') as f:
-            json.dump(CAR_DB, f, ensure_ascii=False, indent=4)
-        logger.info("Car database saved successfully.")
-    except Exception as e:
-        logger.error(f"Error saving car database: {e}")
-
 async def post_init(application):
     # Auto-Backup
     data = load_data()
@@ -865,6 +873,7 @@ async def post_init(application):
     except: pass
 
 if __name__ == '__main__':
+    load_car_db()
     if TOKEN == 'REPLACE_ME_TOKEN': print("⚠️ Configure token in bot.py")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
