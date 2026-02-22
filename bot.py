@@ -12,6 +12,16 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Callb
 from database_manager import db
 from admin_panel import get_admin_main_menu, ROLE_FULL, ROLE_EDITOR, ROLE_SUPPORT
 from excel_handler import process_excel_update
+from state_manager import (
+    get_state, set_state, update_data, reset_state,
+    STATE_IDLE, STATE_ESTIMATE_BRAND, STATE_ESTIMATE_MODEL, STATE_ESTIMATE_YEAR,
+    STATE_ESTIMATE_MILEAGE, STATE_ESTIMATE_PAINT, STATE_SEARCH,
+    STATE_ADMIN_ADD_ADMIN, STATE_ADMIN_SPONSOR_NAME, STATE_ADMIN_SPONSOR_LINK,
+    STATE_ADMIN_BROADCAST, STATE_ADMIN_EDIT_MENU_LABEL, STATE_ADMIN_EDIT_MENU_URL,
+    STATE_ADMIN_SET_SUPPORT, STATE_ADMIN_SET_CHANNEL_URL,
+    STATE_ADMIN_FJ_ID, STATE_ADMIN_FJ_LINK,
+    STATE_ADMIN_UPLOAD_EXCEL_CARS, STATE_ADMIN_UPLOAD_EXCEL_MOBILE
+)
 
 # Configuration
 # These will be replaced by install.sh
@@ -19,32 +29,8 @@ TOKEN = 'REPLACE_ME_TOKEN'
 OWNER_ID = 0
 GEMINI_API_KEY = ''
 
-# Default Menu Configuration (Moved to database_manager.py)
-
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-user_states = {}
-# User States
-STATE_IDLE = "IDLE"
-STATE_ESTIMATE_BRAND = "EST_BRAND"
-STATE_ESTIMATE_MODEL = "EST_MODEL"
-STATE_ESTIMATE_YEAR = "EST_YEAR"
-STATE_ESTIMATE_MILEAGE = "EST_MILEAGE"
-STATE_ESTIMATE_PAINT = "EST_PAINT"
-STATE_SEARCH = "SEARCH"
-
-# Admin States
-STATE_ADMIN_ADD_ADMIN = "ADM_ADD_ADMIN"
-STATE_ADMIN_SPONSOR_NAME = "ADM_SPONSOR_NAME"
-STATE_ADMIN_SPONSOR_LINK = "ADM_SPONSOR_LINK"
-STATE_ADMIN_BROADCAST = "ADM_BCAST"
-STATE_ADMIN_EDIT_MENU_LABEL = "ADM_EDIT_LABEL"
-STATE_ADMIN_EDIT_MENU_URL = "ADM_EDIT_URL"
-STATE_ADMIN_SET_SUPPORT = "ADM_SET_SUPPORT"
-STATE_ADMIN_SET_CHANNEL_URL = "ADM_SET_CHANNEL_URL"
-STATE_ADMIN_UPLOAD_EXCEL_CARS = "ADM_UP_EXCEL_CARS"
-STATE_ADMIN_UPLOAD_EXCEL_MOBILE = "ADM_UP_EXCEL_MOBILE"
 
 YEARS = [1404, 1403, 1402, 1401, 1400, 1399, 1398, 1397, 1396, 1395, 1394, 1393, 1392, 1391, 1390]
 PAINT_CONDITIONS = [
@@ -58,18 +44,6 @@ PAINT_CONDITIONS = [
   {"label": "تمام رنگ", "drop": 0.35},
   {"label": "تعویض اتاق (قانونی)", "drop": 0.30}
 ]
-
-# --- Helper Functions ---
-def get_state(user_id):
-    if user_id not in user_states: user_states[user_id] = {"state": STATE_IDLE, "data": {}}
-    return user_states[user_id]
-def set_state(user_id, state):
-    if user_id not in user_states: user_states[user_id] = {"state": state, "data": {}}
-    else: user_states[user_id]["state"] = state
-def update_data(user_id, key, value):
-    if user_id in user_states: user_states[user_id]["data"][key] = value
-def reset_state(user_id):
-    user_states[user_id] = {"state": STATE_IDLE, "data": {}}
 
 # --- Keyboards ---
 def get_main_menu(user_id):
@@ -233,7 +207,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         found_model, brand_name = None, ""
         for b_name, b_data in car_db.items():
             for m in b_data["models"]:
-                if m["name"] == model_name: found_model = m; brand_name = b_name; break
+                if m["name"] == model_name: 
+                    found_model = m
+                    brand_name = b_name
+                    break
+            if found_model: break
         
         if found_model:
             keyboard = []
@@ -251,7 +229,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         found_variant = None
         for b_data in car_db.values():
             for m in b_data["models"]:
-                if m["name"] == model_name and idx < len(m["variants"]): found_variant = m["variants"][idx]; break
+                if m["name"] == model_name and idx < len(m["variants"]): 
+                    found_variant = m["variants"][idx]
+                    break
+            if found_variant: break
         
         if found_variant:
             # Hybrid Logic: If MarketPrice is 0, try AI if enabled
@@ -422,6 +403,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reset_state(user_id)
         return
 
+    if state_info["state"] == STATE_ADMIN_FJ_ID:
+        d = db.load_data()
+        d["settings"]["force_join"]["channel_id"] = text
+        db.save_data(d)
+        await update.message.reply_text(f"✅ ID کانال تنظیم شد: {text}")
+        reset_state(user_id)
+        return
+
+    if state_info["state"] == STATE_ADMIN_FJ_LINK:
+        d = db.load_data()
+        d["settings"]["force_join"]["invite_link"] = text
+        db.save_data(d)
+        await update.message.reply_text(f"✅ لینک دعوت تنظیم شد: {text}")
+        reset_state(user_id)
+        return
+
     if state_info["state"] == STATE_ADMIN_ADD_ADMIN:
         try:
             new_admin_id = int(text)
@@ -528,8 +525,11 @@ async def post_init(application):
         logger.error(f"Post-init error: {e}")
 
 if __name__ == '__main__':
-    if TOKEN == 'REPLACE_ME_TOKEN': 
-        print("⚠️ Configure token in bot.py or via install.sh")
+    import sys
+    if TOKEN == 'REPLACE_ME_TOKEN' or not TOKEN: 
+        print("❌ ERROR: Bot Token is not configured!")
+        print("Please run 'bash install.sh' or edit bot.py manually.")
+        sys.exit(1)
     
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
