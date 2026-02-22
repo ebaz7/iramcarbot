@@ -6,6 +6,7 @@ import datetime
 import shutil
 import re
 import google.generativeai as genai
+import jdatetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
@@ -118,7 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
         except: pass
 
-    await update.message.reply_text(f"👋 سلام! به ربات قیمت خودرو و موبایل خوش آمدید.\n📅 امروز: {datetime.date.today()}", reply_markup=get_main_menu(user_id))
+    await update.message.reply_text(f"👋 سلام! به ربات قیمت خودرو و موبایل خوش آمدید.\n📅 امروز: {jdatetime.date.today()}", reply_markup=get_main_menu(user_id))
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -268,7 +269,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         paint_idx = int(data.replace("paint_", ""))
         condition = PAINT_CONDITIONS[paint_idx]
         user_data = get_state(user_id)["data"]
-        brand, model, year, mileage = user_data.get("brand"), user_data.get("model"), user_data.get("year"), user_data.get("mileage")
+        brand = user_data.get("brand")
+        model = user_data.get("model")
+        year = user_data.get("year")
+        mileage = user_data.get("mileage")
+        
+        if not all([brand, model, year, mileage is not None]):
+            await query.message.reply_text("❌ خطا در بازیابی اطلاعات. لطفا دوباره تلاش کنید.")
+            reset_state(user_id)
+            return
         
         d = db.load_data()
         car_db = d.get("car_db", {})

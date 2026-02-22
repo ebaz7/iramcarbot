@@ -194,3 +194,19 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.message.reply_text("🔗 لینک دعوت کانال را بفرستید:")
         await query.answer()
         return
+
+    if data == "admin_ai_toggle_source" and role == ROLE_FULL:
+        d = db.load_data()
+        current = d['settings'].get('ai_source', 'gemini')
+        d['settings']['ai_source'] = 'deepseek' if current == 'gemini' else 'gemini'
+        db.save_data(d)
+        await query.answer(f"منبع به {d['settings']['ai_source']} تغییر کرد")
+        query.data = "admin_ai_settings"
+        await handle_admin_callback(update, context, owner_id)
+        return
+
+    if data == "admin_set_support" and (role == ROLE_FULL or role == ROLE_SUPPORT):
+        set_state(user_id, STATE_ADMIN_SET_SUPPORT)
+        await query.message.reply_text("📞 اطلاعات پشتیبانی را بفرستید (متن یا آیدی تلگرام با @ یا لینک):")
+        await query.answer()
+        return
