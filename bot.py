@@ -543,7 +543,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("⏳ در حال دریافت لیست قیمت موبایل از Gemini...")
                 try:
                     genai.configure(api_key=GEMINI_API_KEY)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-3-flash-preview')
                     prompt = (
                         f"یک لیست بسیار کامل و جامع از قیمت روز گوشی‌های موبایل در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} تهیه کن. "
                         "دسته‌بندی بر اساس برندهای (Apple, Samsung, Xiaomi, Poco, Motorola) باشد. "
@@ -657,7 +657,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("⏳ در حال دریافت لیست قیمت خودرو از Gemini...")
                 try:
                     genai.configure(api_key=GEMINI_API_KEY)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-3-flash-preview')
                     prompt = (
                         f"یک لیست بسیار کامل و جامع از قیمت روز خودروهای صفر کیلومتر در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} تهیه کن. "
                         "لیست باید شامل تمام محصولات (ایران خودرو، سایپا، کرمان موتور، بهمن موتور و خودروهای وارداتی) باشد. "
@@ -845,7 +845,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             if source == 'gemini' and GEMINI_API_KEY:
                 genai.configure(api_key=GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-3-flash-preview')
                 
                 # Update Cars
                 car_prompt = f"لیست دقیق قیمت روز خودروهای صفر کیلومتر (داخلی و وارداتی) در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را استخراج کن. خروجی باید شامل نام خودرو، قیمت کارخانه و قیمت بازار باشد."
