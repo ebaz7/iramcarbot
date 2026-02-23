@@ -7,6 +7,7 @@ import shutil
 import re
 import jdatetime
 import pandas as pd
+import requests
 import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
@@ -511,17 +512,35 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         d = load_data()
         conf = d.get("ai_config", {})
         priority = conf.get("priority", "excel")
+        source = conf.get("source", "gemini")
 
-        if priority == 'ai' and GEMINI_API_KEY:
-            await query.edit_message_text("⏳ در حال دریافت لیست قیمت موبایل از هوش مصنوعی...")
-            try:
-                genai.configure(api_key=GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-pro')
-                prompt = f"لیست قیمت به‌روز گوشی‌های موبایل موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی برند ارائه بده."
-                response = model.generate_content(prompt)
-                await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
-            except Exception as e:
-                await query.edit_message_text(f"❌ خطا در ارتباط با هوش مصنوعی: {e}")
+        if priority == 'ai':
+            if source == 'gemini' and GEMINI_API_KEY:
+                await query.edit_message_text("⏳ در حال دریافت لیست قیمت موبایل از Gemini...")
+                try:
+                    genai.configure(api_key=GEMINI_API_KEY)
+                    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                    prompt = f"لیست دقیق و به‌روز قیمت گوشی‌های موبایل پرفروش (آیفون، سامسونگ، شیائومی) در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را به صورت یک لیست شکیل و خوانا با ذکر مدل و قیمت به تومان ارائه بده."
+                    response = model.generate_content(prompt)
+                    await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
+                except Exception as e:
+                    await query.edit_message_text(f"❌ خطا در ارتباط با Gemini: {e}")
+            elif source == 'deepseek' and DEEPSEEK_API_KEY:
+                await query.edit_message_text("⏳ در حال دریافت لیست قیمت موبایل از DeepSeek...")
+                try:
+                    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+                    payload = {
+                        "model": "deepseek-chat",
+                        "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}],
+                        "stream": False
+                    }
+                    resp = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers, timeout=30)
+                    result = resp.json()['choices'][0]['message']['content']
+                    await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
+                except Exception as e:
+                    await query.edit_message_text(f"❌ خطا در ارتباط با DeepSeek: {e}")
+            else:
+                await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است.")
         else:
             keyboard = []
             for brand in MOBILE_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"mob_brand_{brand}")])
@@ -564,17 +583,35 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         d = load_data()
         conf = d.get("ai_config", {})
         priority = conf.get("priority", "excel")
+        source = conf.get("source", "gemini")
 
-        if priority == 'ai' and GEMINI_API_KEY:
-            await query.edit_message_text("⏳ در حال دریافت لیست قیمت خودرو از هوش مصنوعی...")
-            try:
-                genai.configure(api_key=GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-pro')
-                prompt = f"لیست قیمت به‌روز خودروهای ایرانی و خارجی موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی شرکت سازنده ارائه بده."
-                response = model.generate_content(prompt)
-                await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
-            except Exception as e:
-                await query.edit_message_text(f"❌ خطا در ارتباط با هوش مصنوعی: {e}")
+        if priority == 'ai':
+            if source == 'gemini' and GEMINI_API_KEY:
+                await query.edit_message_text("⏳ در حال دریافت لیست قیمت خودرو از Gemini...")
+                try:
+                    genai.configure(api_key=GEMINI_API_KEY)
+                    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                    prompt = f"لیست دقیق و به‌روز قیمت خودروهای داخلی (ایران خودرو، سایپا) و وارداتی پرفروش در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را به صورت یک لیست شکیل و خوانا با تفکیک قیمت کارخانه و بازار ارائه بده."
+                    response = model.generate_content(prompt)
+                    await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
+                except Exception as e:
+                    await query.edit_message_text(f"❌ خطا در ارتباط با Gemini: {e}")
+            elif source == 'deepseek' and DEEPSEEK_API_KEY:
+                await query.edit_message_text("⏳ در حال دریافت لیست قیمت خودرو از DeepSeek...")
+                try:
+                    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+                    payload = {
+                        "model": "deepseek-chat",
+                        "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}],
+                        "stream": False
+                    }
+                    resp = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers, timeout=30)
+                    result = resp.json()['choices'][0]['message']['content']
+                    await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
+                except Exception as e:
+                    await query.edit_message_text(f"❌ خطا در ارتباط با DeepSeek: {e}")
+            else:
+                await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است.")
         else:
             keyboard = []
             for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
@@ -689,23 +726,48 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "ai_update_now" and is_admin(user_id):
-        await query.edit_message_text("⏳ در حال ارسال درخواست آپدیت به هوش مصنوعی...")
+        d = load_data()
+        conf = d.get("ai_config", {})
+        source = conf.get("source", "gemini")
+        
+        await query.edit_message_text(f"⏳ در حال ارسال درخواست آپدیت به {source}...")
         try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-pro')
+            if source == 'gemini' and GEMINI_API_KEY:
+                genai.configure(api_key=GEMINI_API_KEY)
+                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                
+                # Update Cars
+                car_prompt = f"لیست دقیق قیمت روز خودروهای صفر کیلومتر (داخلی و وارداتی) در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را استخراج کن. خروجی باید شامل نام خودرو، قیمت کارخانه و قیمت بازار باشد."
+                car_response = model.generate_content(car_prompt)
+                
+                # Update Mobiles
+                mobile_prompt = f"لیست دقیق قیمت روز گوشی‌های موبایل (برندهای اصلی) در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را استخراج کن. خروجی شامل مدل دقیق و قیمت مصرف‌کننده باشد."
+                mobile_response = model.generate_content(mobile_prompt)
+                
+                await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از Gemini دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]])) 
             
-            # Update Cars
-            car_prompt = f"لیست قیمت به‌روز خودروهای ایرانی و خارجی موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی شرکت سازنده ارائه بده."
-            car_response = model.generate_content(car_prompt)
-            
-            # Update Mobiles
-            mobile_prompt = f"لیست قیمت به‌روز گوشی‌های موبایل موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی برند ارائه بده."
-            mobile_response = model.generate_content(mobile_prompt)
-
-            # Here you would typically save the updated data to your database
-            # For now, we'll just confirm it was fetched.
-
-            await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از AI دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]])) 
+            elif source == 'deepseek' and DEEPSEEK_API_KEY:
+                headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+                
+                # Update Cars
+                car_payload = {
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}],
+                    "stream": False
+                }
+                requests.post("https://api.deepseek.com/chat/completions", json=car_payload, headers=headers, timeout=30)
+                
+                # Update Mobiles
+                mobile_payload = {
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}],
+                    "stream": False
+                }
+                requests.post("https://api.deepseek.com/chat/completions", json=mobile_payload, headers=headers, timeout=30)
+                
+                await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از DeepSeek دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
+            else:
+                await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است.")
         except Exception as e:
             await query.edit_message_text(f"❌ خطا در ارتباط با هوش مصنوعی: {e}")
         return
