@@ -294,7 +294,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("⚙️ مدیریت منو", callback_data="admin_menus")],
             [InlineKeyboardButton("✨ مرکز کنترل AI", callback_data="admin_ai_control")],
-            [InlineKeyboardButton("📂 آپدیت قیمت (اکسل)", callback_data="admin_update_excel")],
+            [InlineKeyboardButton("📂 مدیریت اکسل", callback_data="admin_excel_management")],
             [InlineKeyboardButton("➕ افزودن تکی خودرو", callback_data="admin_add_car")],
             [InlineKeyboardButton("📞 تنظیم پشتیبانی", callback_data="admin_set_support")],
             [InlineKeyboardButton("👥 ادمین‌ها", callback_data="admin_manage_admins")],
@@ -308,6 +308,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "admin_ai_control" and is_admin(user_id):
         await query.edit_message_text("✨ **مرکز کنترل هوش مصنوعی**", reply_markup=get_ai_control_menu(user_id), parse_mode='Markdown')
+        return
+
+    if data == "admin_excel_management" and is_admin(user_id):
+        keyboard = [
+            [InlineKeyboardButton("📥 دانلود فایل نمونه (Template)", callback_data="admin_download_template")],
+            [InlineKeyboardButton("📤 آپلود فایل تکمیل شده", callback_data="admin_update_excel")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
+        ]
+        await query.edit_message_text("📊 **مدیریت دیتابیس اکسل**\n\nمی‌توانید فایل نمونه را دانلود کرده و پس از پر کردن، دوباره آپلود کنید.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
+
+    if data == "admin_download_template" and is_admin(user_id):
+        try:
+            df = pd.DataFrame(columns=['brand', 'model', 'variant', 'factoryPrice', 'marketPrice'])
+            # Add a sample row
+            df.loc[0] = ['ایران خودرو', 'پژو 207', 'دنده ای هیدرولیک', 450000000, 750000000]
+            template_path = "template.xlsx"
+            df.to_excel(template_path, index=False)
+            await context.bot.send_document(chat_id=user_id, document=open(template_path, 'rb'), caption="📝 فایل نمونه اکسل\nلطفا طبق همین فرمت فایل را پر کرده و ارسال کنید.")
+            os.remove(template_path)
+        except Exception as e:
+            await query.message.reply_text(f"❌ خطا در ساخت فایل: {e}")
         return
 
     if data == "admin_update_excel" and is_admin(user_id):
@@ -522,7 +544,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     genai.configure(api_key=GEMINI_API_KEY)
                     model = genai.GenerativeModel('gemini-1.5-flash')
-                    prompt = f"لیست دقیق و به‌روز قیمت گوشی‌های موبایل پرفروش (آیفون، سامسونگ، شیائومی) در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را به صورت یک لیست شکیل و خوانا با ذکر مدل و قیمت به تومان ارائه بده."
+                    prompt = (
+                        f"یک لیست بسیار کامل و جامع از قیمت روز گوشی‌های موبایل در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} تهیه کن. "
+                        "دسته‌بندی بر اساس برندهای (Apple, Samsung, Xiaomi, Poco, Motorola) باشد. "
+                        "برای هر مدل، قیمت دقیق به تومان ذکر شود. خروجی بسیار شکیل، با استفاده از ایموجی و جداکننده باشد."
+                    )
                     response = model.generate_content(prompt)
                     await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
                 except Exception as e:
@@ -613,7 +639,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     genai.configure(api_key=GEMINI_API_KEY)
                     model = genai.GenerativeModel('gemini-1.5-flash')
-                    prompt = f"لیست دقیق و به‌روز قیمت خودروهای داخلی (ایران خودرو، سایپا) و وارداتی پرفروش در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را به صورت یک لیست شکیل و خوانا با تفکیک قیمت کارخانه و بازار ارائه بده."
+                    prompt = (
+                        f"یک لیست بسیار کامل و جامع از قیمت روز خودروهای صفر کیلومتر در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} تهیه کن. "
+                        "لیست باید شامل تمام محصولات (ایران خودرو، سایپا، کرمان موتور، بهمن موتور و خودروهای وارداتی) باشد. "
+                        "برای هر خودرو حتماً این موارد را ذکر کن: ۱. نام خودرو ۲. قیمت کارخانه ۳. قیمت بازار ۴. اختلاف قیمت (سود بازار). "
+                        "خروجی باید به صورت دسته‌بندی شده بر اساس کمپانی، بسیار شکیل و با استفاده از جداکننده‌های خطی و ایموجی‌های مناسب باشد."
+                    )
                     response = model.generate_content(prompt)
                     await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
                 except Exception as e:
