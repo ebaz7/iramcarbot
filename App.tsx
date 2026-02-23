@@ -3,9 +3,12 @@ import { Settings, Upload, RefreshCw, Database, Bot, Clock, ShieldCheck, AlertCi
 
 interface AppSettings {
   priority: 'AI' | 'EXCEL';
+  aiSource: 'GEMINI' | 'DEEPSEEK' | 'OPENAI';
   updateInterval: number;
   lastUpdated: string | null;
   geminiApiKey: string;
+  deepseekApiKey: string;
+  openaiApiKey: string;
   telegramToken: string;
 }
 
@@ -176,7 +179,7 @@ function App() {
             <header className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold text-white mb-1">داشبورد قیمت‌ها</h2>
-                <p className="text-slate-400">منبع فعلی: {settings.priority === 'AI' ? 'هوش مصنوعی (Gemini)' : 'فایل اکسل'}</p>
+                <p className="text-slate-400">منبع فعلی: {settings.priority === 'AI' ? `هوش مصنوعی (${settings.aiSource})` : 'فایل اکسل'}</p>
               </div>
               <button 
                 onClick={handleAiUpdate}
@@ -215,7 +218,7 @@ function App() {
             <h2 className="text-2xl font-bold text-white mb-6">تنظیمات ربات</h2>
             <form onSubmit={handleUpdateSettings} className="space-y-6 bg-slate-800 p-6 rounded-xl border border-slate-700">
               
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">اولویت داده‌ها</label>
                   <select
@@ -223,8 +226,21 @@ function App() {
                     onChange={(e) => setSettings({ ...settings, priority: e.target.value as 'AI' | 'EXCEL' })}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                   >
-                    <option value="AI">هوش مصنوعی (Gemini)</option>
+                    <option value="AI">هوش مصنوعی</option>
                     <option value="EXCEL">فایل اکسل</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">منبع هوش مصنوعی</label>
+                  <select
+                    value={settings.aiSource}
+                    onChange={(e) => setSettings({ ...settings, aiSource: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option value="GEMINI">Gemini (Google)</option>
+                    <option value="DEEPSEEK">DeepSeek</option>
+                    <option value="OPENAI">ChatGPT (OpenAI)</option>
                   </select>
                 </div>
 
@@ -239,16 +255,42 @@ function App() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-2">Gemini API Key</label>
-                <input
-                  type="password"
-                  value={settings.geminiApiKey}
-                  onChange={(e) => setSettings({ ...settings, geminiApiKey: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                  placeholder="AIza..."
-                  dir="ltr"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">Gemini API Key</label>
+                  <input
+                    type="password"
+                    value={settings.geminiApiKey}
+                    onChange={(e) => setSettings({ ...settings, geminiApiKey: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="AIza..."
+                    dir="ltr"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">DeepSeek API Key</label>
+                  <input
+                    type="password"
+                    value={settings.deepseekApiKey}
+                    onChange={(e) => setSettings({ ...settings, deepseekApiKey: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="sk-..."
+                    dir="ltr"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">OpenAI API Key</label>
+                  <input
+                    type="password"
+                    value={settings.openaiApiKey}
+                    onChange={(e) => setSettings({ ...settings, openaiApiKey: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="sk-..."
+                    dir="ltr"
+                  />
+                </div>
               </div>
 
               <div>

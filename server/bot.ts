@@ -1,6 +1,6 @@
 import { Telegraf, Context } from 'telegraf';
 import { loadSettings } from './settings';
-import { generatePriceList } from './gemini';
+import { generatePriceList } from './ai';
 
 let bot: Telegraf<Context> | null = null;
 

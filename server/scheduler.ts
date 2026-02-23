@@ -1,5 +1,5 @@
 import cron, { ScheduledTask } from 'node-cron';
-import { generatePriceList } from './gemini';
+import { generatePriceList } from './ai';
 import { loadSettings, updateSettings } from './settings';
 
 let currentJob: ScheduledTask | null = null;

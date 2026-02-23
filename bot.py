@@ -583,7 +583,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
                     }
                     resp = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
-                    result = resp.json()['choices'][0]['message']['content']
+                    if resp.status_code != 200:
+                        await query.edit_message_text(f"❌ خطای API ChatGPT (کد {resp.status_code}): {resp.text}")
+                        return
+                    data_json = resp.json()
+                    if 'choices' not in data_json:
+                        await query.edit_message_text(f"❌ پاسخ نامعتبر از ChatGPT: {data_json}")
+                        return
+                    result = data_json['choices'][0]['message']['content']
                     await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
                 except Exception as e:
                     await query.edit_message_text(f"❌ خطا در ارتباط با ChatGPT: {e}")
@@ -679,7 +686,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
                     }
                     resp = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
-                    result = resp.json()['choices'][0]['message']['content']
+                    if resp.status_code != 200:
+                        await query.edit_message_text(f"❌ خطای API ChatGPT (کد {resp.status_code}): {resp.text}")
+                        return
+                    data_json = resp.json()
+                    if 'choices' not in data_json:
+                        await query.edit_message_text(f"❌ پاسخ نامعتبر از ChatGPT: {data_json}")
+                        return
+                    result = data_json['choices'][0]['message']['content']
                     await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
                 except Exception as e:
                     await query.edit_message_text(f"❌ خطا در ارتباط با ChatGPT: {e}")
@@ -851,16 +865,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "model": "gpt-3.5-turbo",
                     "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
                 }
-                requests.post("https://api.openai.com/v1/chat/completions", json=car_payload, headers=headers, timeout=30)
+                resp_car = requests.post("https://api.openai.com/v1/chat/completions", json=car_payload, headers=headers, timeout=30)
                 
                 # Update Mobiles
                 mobile_payload = {
                     "model": "gpt-3.5-turbo",
                     "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
                 }
-                requests.post("https://api.openai.com/v1/chat/completions", json=mobile_payload, headers=headers, timeout=30)
+                resp_mob = requests.post("https://api.openai.com/v1/chat/completions", json=mobile_payload, headers=headers, timeout=30)
                 
-                await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از ChatGPT دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
+                if resp_car.status_code == 200 and resp_mob.status_code == 200:
+                    await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از ChatGPT دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
+                else:
+                    await query.edit_message_text(f"❌ خطا در دریافت اطلاعات از ChatGPT. کد خطا: {resp_car.status_code}")
             else:
                 await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است.")
         except Exception as e:

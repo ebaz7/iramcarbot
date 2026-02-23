@@ -4,7 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { loadSettings, updateSettings } from './server/settings';
-import { generatePriceList } from './server/gemini';
+import { generatePriceList } from './server/ai';
 import { startScheduler, restartScheduler } from './server/scheduler';
 import { startBot } from './server/bot';
 import { parseExcelFile } from './server/excel';
@@ -25,8 +25,7 @@ app.get('/api/settings', (req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
-  const { priority, updateInterval, geminiApiKey, telegramToken } = req.body;
-  const updated = updateSettings({ priority, updateInterval, geminiApiKey, telegramToken });
+  const updated = updateSettings(req.body);
   restartScheduler(); // Restart scheduler if interval changed
   startBot(); // Restart bot if token changed
   res.json(updated);
