@@ -15,6 +15,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Callb
 TOKEN = 'REPLACE_ME_TOKEN' 
 OWNER_ID = 0
 GEMINI_API_KEY = ''
+DEEPSEEK_API_KEY = ''
 DATA_FILE = 'bot_data.json'
 
 # Default Menu Configuration
@@ -242,6 +243,7 @@ def get_ai_control_menu(user_id):
             InlineKeyboardButton(("✅ " if schedule == 24 else '') + "24h", callback_data="ai_set_schedule_24")
         ],
         [InlineKeyboardButton("🚫 خاموش کردن زمانبندی", callback_data="ai_set_schedule_0")],
+        [InlineKeyboardButton("🔄 آپدیت قیمت‌ها (همین الان)", callback_data="ai_update_now")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_home")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -288,7 +290,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "admin_home" and is_admin(user_id):
         keyboard = [
             [InlineKeyboardButton("⚙️ مدیریت منو", callback_data="admin_menus")],
-            [InlineKeyboardButton("📢 تنظیمات کانال", callback_data="admin_channel_settings")],
             [InlineKeyboardButton("✨ مرکز کنترل AI", callback_data="admin_ai_control")],
             [InlineKeyboardButton("📂 آپدیت قیمت (اکسل)", callback_data="admin_update_excel")],
             [InlineKeyboardButton("➕ افزودن تکی خودرو", callback_data="admin_add_car")],
@@ -392,10 +393,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("edit_menu_"):
         key = data.replace("edit_menu_", "")
-        if key == "channel":
-            query.data = "admin_channel_settings"
-            await handle_callback(update, context)
-            return
             
         d = load_data()
         c = d.get("menu_config", DEFAULT_CONFIG).get(key, {})
@@ -519,7 +516,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("⏳ در حال دریافت لیست قیمت موبایل از هوش مصنوعی...")
             try:
                 genai.configure(api_key=GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-pro')
                 prompt = f"لیست قیمت به‌روز گوشی‌های موبایل موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی برند ارائه بده."
                 response = model.generate_content(prompt)
                 await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
@@ -572,7 +569,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("⏳ در حال دریافت لیست قیمت خودرو از هوش مصنوعی...")
             try:
                 genai.configure(api_key=GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-pro')
                 prompt = f"لیست قیمت به‌روز خودروهای ایرانی و خارجی موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی شرکت سازنده ارائه بده."
                 response = model.generate_content(prompt)
                 await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
@@ -689,6 +686,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🏠 منوی اصلی", callback_data="main_menu")]]
         await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         reset_state(user_id)
+        return
+
+    if data == "ai_update_now" and is_admin(user_id):
+        await query.edit_message_text("⏳ در حال ارسال درخواست آپدیت به هوش مصنوعی...")
+        try:
+            genai.configure(api_key=GEMINI_API_KEY)
+            model = genai.GenerativeModel('gemini-pro')
+            
+            # Update Cars
+            car_prompt = f"لیست قیمت به‌روز خودروهای ایرانی و خارجی موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی شرکت سازنده ارائه بده."
+            car_response = model.generate_content(car_prompt)
+            
+            # Update Mobiles
+            mobile_prompt = f"لیست قیمت به‌روز گوشی‌های موبایل موجود در بازار ایران را برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} به صورت یک متن خوانا و زیبا با دسته‌بندی برند ارائه بده."
+            mobile_response = model.generate_content(mobile_prompt)
+
+            # Here you would typically save the updated data to your database
+            # For now, we'll just confirm it was fetched.
+
+            await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از AI دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]])) 
+        except Exception as e:
+            await query.edit_message_text(f"❌ خطا در ارتباط با هوش مصنوعی: {e}")
         return
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
