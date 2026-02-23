@@ -17,6 +17,7 @@ TOKEN = 'REPLACE_ME_TOKEN'
 OWNER_ID = 0
 GEMINI_API_KEY = ''
 DEEPSEEK_API_KEY = ''
+OPENAI_API_KEY = ''
 DATA_FILE = 'bot_data.json'
 
 # Default Menu Configuration
@@ -228,8 +229,9 @@ def get_ai_control_menu(user_id):
         [
             InlineKeyboardButton(("✅ " if source == 'gemini' else '') + "Gemini", callback_data="ai_set_source_gemini"),
             InlineKeyboardButton(("✅ " if source == 'deepseek' else '') + "DeepSeek", callback_data="ai_set_source_deepseek"),
-            InlineKeyboardButton(("✅ " if source == 'hybrid' else '') + "Hybrid", callback_data="ai_set_source_hybrid")
+            InlineKeyboardButton(("✅ " if source == 'openai' else '') + "ChatGPT", callback_data="ai_set_source_openai")
         ],
+        [InlineKeyboardButton(("✅ " if source == 'hybrid' else '') + "Hybrid (ترکیبی)", callback_data="ai_set_source_hybrid")],
         [InlineKeyboardButton("⚖️ اولویت (Priority)", callback_data="noop")],
         [
             InlineKeyboardButton(("✅ " if priority == 'excel' else '') + "اکسل", callback_data="ai_set_priority_excel"),
@@ -519,7 +521,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("⏳ در حال دریافت لیست قیمت موبایل از Gemini...")
                 try:
                     genai.configure(api_key=GEMINI_API_KEY)
-                    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     prompt = f"لیست دقیق و به‌روز قیمت گوشی‌های موبایل پرفروش (آیفون، سامسونگ، شیائومی) در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را به صورت یک لیست شکیل و خوانا با ذکر مدل و قیمت به تومان ارائه بده."
                     response = model.generate_content(prompt)
                     await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
@@ -535,10 +537,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "stream": False
                     }
                     resp = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers, timeout=30)
-                    result = resp.json()['choices'][0]['message']['content']
+                    if resp.status_code != 200:
+                        await query.edit_message_text(f"❌ خطای API DeepSeek (کد {resp.status_code}): {resp.text}")
+                        return
+                    data_json = resp.json()
+                    if 'choices' not in data_json:
+                        await query.edit_message_text(f"❌ پاسخ نامعتبر از DeepSeek: {data_json}")
+                        return
+                    result = data_json['choices'][0]['message']['content']
                     await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
                 except Exception as e:
                     await query.edit_message_text(f"❌ خطا در ارتباط با DeepSeek: {e}")
+            elif source == 'openai' and OPENAI_API_KEY:
+                await query.edit_message_text("⏳ در حال دریافت لیست قیمت موبایل از ChatGPT...")
+                try:
+                    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+                    payload = {
+                        "model": "gpt-3.5-turbo",
+                        "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
+                    }
+                    resp = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
+                    result = resp.json()['choices'][0]['message']['content']
+                    await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
+                except Exception as e:
+                    await query.edit_message_text(f"❌ خطا در ارتباط با ChatGPT: {e}")
             else:
                 await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است.")
         else:
@@ -590,7 +612,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("⏳ در حال دریافت لیست قیمت خودرو از Gemini...")
                 try:
                     genai.configure(api_key=GEMINI_API_KEY)
-                    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     prompt = f"لیست دقیق و به‌روز قیمت خودروهای داخلی (ایران خودرو، سایپا) و وارداتی پرفروش در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را به صورت یک لیست شکیل و خوانا با تفکیک قیمت کارخانه و بازار ارائه بده."
                     response = model.generate_content(prompt)
                     await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])) 
@@ -606,10 +628,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "stream": False
                     }
                     resp = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers, timeout=30)
-                    result = resp.json()['choices'][0]['message']['content']
+                    if resp.status_code != 200:
+                        await query.edit_message_text(f"❌ خطای API DeepSeek (کد {resp.status_code}): {resp.text}")
+                        return
+                    data_json = resp.json()
+                    if 'choices' not in data_json:
+                        await query.edit_message_text(f"❌ پاسخ نامعتبر از DeepSeek: {data_json}")
+                        return
+                    result = data_json['choices'][0]['message']['content']
                     await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
                 except Exception as e:
                     await query.edit_message_text(f"❌ خطا در ارتباط با DeepSeek: {e}")
+            elif source == 'openai' and OPENAI_API_KEY:
+                await query.edit_message_text("⏳ در حال دریافت لیست قیمت خودرو از ChatGPT...")
+                try:
+                    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+                    payload = {
+                        "model": "gpt-3.5-turbo",
+                        "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
+                    }
+                    resp = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
+                    result = resp.json()['choices'][0]['message']['content']
+                    await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]))
+                except Exception as e:
+                    await query.edit_message_text(f"❌ خطا در ارتباط با ChatGPT: {e}")
             else:
                 await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است.")
         else:
@@ -734,7 +776,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             if source == 'gemini' and GEMINI_API_KEY:
                 genai.configure(api_key=GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                model = genai.GenerativeModel('gemini-1.5-flash')
                 
                 # Update Cars
                 car_prompt = f"لیست دقیق قیمت روز خودروهای صفر کیلومتر (داخلی و وارداتی) در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را استخراج کن. خروجی باید شامل نام خودرو، قیمت کارخانه و قیمت بازار باشد."
@@ -755,7 +797,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}],
                     "stream": False
                 }
-                requests.post("https://api.deepseek.com/chat/completions", json=car_payload, headers=headers, timeout=30)
+                resp_car = requests.post("https://api.deepseek.com/chat/completions", json=car_payload, headers=headers, timeout=30)
                 
                 # Update Mobiles
                 mobile_payload = {
@@ -763,9 +805,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}],
                     "stream": False
                 }
-                requests.post("https://api.deepseek.com/chat/completions", json=mobile_payload, headers=headers, timeout=30)
+                resp_mob = requests.post("https://api.deepseek.com/chat/completions", json=mobile_payload, headers=headers, timeout=30)
                 
-                await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از DeepSeek دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
+                if resp_car.status_code == 200 and resp_mob.status_code == 200:
+                    await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از DeepSeek دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
+                else:
+                    await query.edit_message_text(f"❌ خطا در دریافت اطلاعات از DeepSeek. کد خطا: {resp_car.status_code}")
+
+            elif source == 'openai' and OPENAI_API_KEY:
+                headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+                
+                # Update Cars
+                car_payload = {
+                    "model": "gpt-3.5-turbo",
+                    "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
+                }
+                requests.post("https://api.openai.com/v1/chat/completions", json=car_payload, headers=headers, timeout=30)
+                
+                # Update Mobiles
+                mobile_payload = {
+                    "model": "gpt-3.5-turbo",
+                    "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
+                }
+                requests.post("https://api.openai.com/v1/chat/completions", json=mobile_payload, headers=headers, timeout=30)
+                
+                await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از ChatGPT دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
             else:
                 await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است.")
         except Exception as e:
