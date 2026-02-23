@@ -563,6 +563,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "stream": False
                     }
                     resp = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers, timeout=30)
+                    if resp.status_code == 402:
+                        await query.edit_message_text("❌ **خطای اعتبار:** اعتبار حساب DeepSeek شما تمام شده است.")
+                        return
                     if resp.status_code != 200:
                         await query.edit_message_text(f"❌ خطای API DeepSeek (کد {resp.status_code}): {resp.text}")
                         return
@@ -583,6 +586,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
                     }
                     resp = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
+                    if resp.status_code == 402:
+                        await query.edit_message_text("❌ **خطای اعتبار:** اعتبار حساب ChatGPT شما تمام شده است.")
+                        return
                     if resp.status_code != 200:
                         await query.edit_message_text(f"❌ خطای API ChatGPT (کد {resp.status_code}): {resp.text}")
                         return
@@ -666,6 +672,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "stream": False
                     }
                     resp = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers, timeout=30)
+                    if resp.status_code == 402:
+                        await query.edit_message_text("❌ **خطای اعتبار:** اعتبار حساب DeepSeek شما تمام شده است.")
+                        return
                     if resp.status_code != 200:
                         await query.edit_message_text(f"❌ خطای API DeepSeek (کد {resp.status_code}): {resp.text}")
                         return
@@ -686,6 +695,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
                     }
                     resp = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
+                    if resp.status_code == 402:
+                        await query.edit_message_text("❌ **خطای اعتبار:** اعتبار حساب ChatGPT شما تمام شده است.")
+                        return
                     if resp.status_code != 200:
                         await query.edit_message_text(f"❌ خطای API ChatGPT (کد {resp.status_code}): {resp.text}")
                         return
@@ -854,6 +866,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 if resp_car.status_code == 200 and resp_mob.status_code == 200:
                     await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از DeepSeek دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
+                elif resp_car.status_code == 402 or resp_mob.status_code == 402:
+                    await query.edit_message_text("❌ **خطای اعتبار:** شارژ حساب DeepSeek شما تمام شده است.")
                 else:
                     await query.edit_message_text(f"❌ خطا در دریافت اطلاعات از DeepSeek. کد خطا: {resp_car.status_code}")
 
