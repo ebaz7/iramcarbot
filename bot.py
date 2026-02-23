@@ -566,6 +566,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if resp.status_code == 402:
                         await query.edit_message_text("❌ **خطای اعتبار:** اعتبار حساب DeepSeek شما تمام شده است.")
                         return
+                    if resp.status_code == 429:
+                        await query.edit_message_text("⏳ **خطای محدودیت:** تعداد درخواست‌های شما از حد مجاز DeepSeek فراتر رفته. لطفا چند دقیقه صبر کنید.")
+                        return
                     if resp.status_code != 200:
                         await query.edit_message_text(f"❌ خطای API DeepSeek (کد {resp.status_code}): {resp.text}")
                         return
@@ -588,6 +591,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     resp = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
                     if resp.status_code == 402:
                         await query.edit_message_text("❌ **خطای اعتبار:** اعتبار حساب ChatGPT شما تمام شده است.")
+                        return
+                    if resp.status_code == 429:
+                        await query.edit_message_text("⏳ **خطای محدودیت:** شما بیش از حد مجاز از ChatGPT استفاده کرده‌اید. لطفا دقایقی صبر کنید یا از Gemini استفاده کنید.")
                         return
                     if resp.status_code != 200:
                         await query.edit_message_text(f"❌ خطای API ChatGPT (کد {resp.status_code}): {resp.text}")
@@ -675,6 +681,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if resp.status_code == 402:
                         await query.edit_message_text("❌ **خطای اعتبار:** اعتبار حساب DeepSeek شما تمام شده است.")
                         return
+                    if resp.status_code == 429:
+                        await query.edit_message_text("⏳ **خطای محدودیت:** تعداد درخواست‌های شما از حد مجاز DeepSeek فراتر رفته. لطفا چند دقیقه صبر کنید.")
+                        return
                     if resp.status_code != 200:
                         await query.edit_message_text(f"❌ خطای API DeepSeek (کد {resp.status_code}): {resp.text}")
                         return
@@ -697,6 +706,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     resp = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
                     if resp.status_code == 402:
                         await query.edit_message_text("❌ **خطای اعتبار:** اعتبار حساب ChatGPT شما تمام شده است.")
+                        return
+                    if resp.status_code == 429:
+                        await query.edit_message_text("⏳ **خطای محدودیت:** شما بیش از حد مجاز از ChatGPT استفاده کرده‌اید. لطفا دقایقی صبر کنید یا از Gemini استفاده کنید.")
                         return
                     if resp.status_code != 200:
                         await query.edit_message_text(f"❌ خطای API ChatGPT (کد {resp.status_code}): {resp.text}")
@@ -890,6 +902,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 if resp_car.status_code == 200 and resp_mob.status_code == 200:
                     await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از ChatGPT دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
+                elif resp_car.status_code == 429 or resp_mob.status_code == 429:
+                    await query.edit_message_text("⏳ **خطای محدودیت:** محدودیت تعداد درخواست ChatGPT. لطفا کمی صبر کنید.")
                 else:
                     await query.edit_message_text(f"❌ خطا در دریافت اطلاعات از ChatGPT. کد خطا: {resp_car.status_code}")
             else:
