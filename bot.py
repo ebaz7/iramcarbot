@@ -253,10 +253,12 @@ def get_ai_control_menu(user_id):
     return InlineKeyboardMarkup(keyboard)
 
 async def send_auto_backup(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
     if os.path.exists(DATA_FILE):
-        await context.bot.send_document(chat_id=job.chat_id, document=open(DATA_FILE, 'rb'), caption=f"💾 Auto-Backup ({job.name})")
-
+        try:
+            with open(DATA_FILE, 'rb') as doc:
+                await context.bot.send_document(chat_id=OWNER_ID, document=doc, caption="💾 Auto-Backup")
+        except Exception as e:
+            logger.error(f"Error sending auto-backup: {e}")
 
 # --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1061,10 +1063,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def post_init(application):
     # Auto-Backup
-    data = load_data()
-    interval = data.get("backup_interval", 0)
-    if interval > 0:
-        application.job_queue.run_repeating(send_auto_backup, interval=interval*3600, first=60, name='auto_backup')
+    try:
+        data = load_data()
+        interval = data.get("backup_interval", 0)
+        if interval and int(interval) > 0 and application.job_queue:
+            application.job_queue.run_repeating(send_auto_backup, interval=int(interval)*3600, first=60, name='auto_backup')
+    except Exception as e:
+        logger.error(f"Error in post_init backup setup: {e}")
+
     # Fix Commands
     try:
         await application.bot.set_my_commands([
@@ -1073,7 +1079,8 @@ async def post_init(application):
             BotCommand("fixmenu", "🔧 تعمیر دکمه منو")
         ])
         await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
-    except: pass
+    except Exception as e:
+        logger.error(f"Error setting commands: {e}")
 
 if __name__ == '__main__':
     load_car_db()
