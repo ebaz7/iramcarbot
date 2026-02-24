@@ -640,14 +640,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         m_price = variant.get('marketPrice', 0)
                         o_price = variant.get('officialPrice', 0)
                         
-                        try: m_str = f"{int(float(str(m_price).replace(',', ''))):,} تومان"
-                        except: m_str = str(m_price)
+                        try:
+                            m_val = int(float(str(m_price).replace(',', '')))
+                            m_str = f"{m_val:,} تومان"
+                        except:
+                            m_val = 0
+                            m_str = str(m_price)
                         
-                        try: o_str = f"{int(float(str(o_price).replace(',', ''))):,} تومان"
-                        except: o_str = str(o_price)
+                        try:
+                            o_val = int(float(str(o_price).replace(',', '')))
+                            o_str = f"{o_val:,} تومان"
+                        except:
+                            o_val = 0
+                            o_str = str(o_price)
 
                         lines.append(f"🔹 **{model['name']} ({variant['name']})**")
-                        if o_price > 0: lines.append(f"   🛡 گارانتی: {o_str}")
+                        if o_val > 0 or (isinstance(o_price, str) and o_price.strip() != ""):
+                            lines.append(f"   🛡 گارانتی: {o_str}")
                         lines.append(f"   🏪 بازار: {m_str}")
                         lines.append("")
             lines.append("-------------------")
@@ -753,15 +762,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for variant in model.get("variants", []):
                     m_price = variant.get('marketPrice', 0)
                     f_price = variant.get('factoryPrice', 0)
-                    diff = m_price - f_price if f_price > 0 else 0
                     
-                    try: m_str = f"{int(float(str(m_price).replace(',', ''))):,} تومان"
-                    except: m_str = str(m_price)
+                    try:
+                        m_val = int(float(str(m_price).replace(',', '')))
+                        m_str = f"{m_val:,} تومان"
+                    except:
+                        m_val = 0
+                        m_str = str(m_price)
                     
-                    try: f_str = f"{int(float(str(f_price).replace(',', ''))):,} تومان"
-                    except: f_str = str(f_price)
+                    try:
+                        f_val = int(float(str(f_price).replace(',', '')))
+                        f_str = f"{f_val:,} تومان"
+                    except:
+                        f_val = 0
+                        f_str = str(f_price)
                     
-                    try: d_str = f"{int(float(str(diff).replace(',', ''))):,} تومان"
+                    diff = m_val - f_val if f_val > 0 and m_val > 0 else 0
+                    try: d_str = f"{diff:,} تومان"
                     except: d_str = str(diff)
 
                     lines.append(f"🔹 **{model['name']} ({variant['name']})**")
@@ -769,6 +786,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     lines.append(f"   🏪 بازار: {m_str}")
                     if diff > 0:
                         lines.append(f"   📈 اختلاف: {d_str}")
+                    elif diff < 0:
+                        lines.append(f"   📉 اختلاف: {d_str}")
                     lines.append("")
             lines.append("-------------------")
 
@@ -949,25 +968,45 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             if source == 'gemini' and GEMINI_API_KEY:
                 genai.configure(api_key=GEMINI_API_KEY)
-                # Using Google Search tool for real-time price grounding
+                # Using urlContext for direct grounding on the provided high-quality sources
+                # We also keep google_search as a fallback/supplement
                 try:
-                    model = genai.GenerativeModel('gemini-3-flash-preview', tools=[{'google_search': {}}])
+                    model = genai.GenerativeModel('gemini-3-flash-preview', tools=[{'urlContext': {}}, {'google_search': {}}])
                 except:
                     model = genai.GenerativeModel('gemini-3-flash-preview')
                 
-                # Reference URLs
-                sources = (
-                    "1. IranJib (https://www.iranjib.ir/showgroup/45/)\n"
-                    "2. Bama (https://bama.ir/car-prices)\n"
-                    "3. Divar (https://divar.ir/car)\n"
-                )
+                # Reference URLs for grounding
+                car_url = "https://www.iranjib.ir/showgroup/45/%D9%82%DB%8C%D9%85%D8%AA-%D8%AE%D9%88%D8%AF%D8%B1%D9%88-%D8%AA%D9%88%D9%84%DB%8C%D8%AF-%D8%AF%D8%A7%D8%AE%D9%84/"
+                mob_url = "https://www.iranjib.ir/showgroup/28/%D9%82%DB%8C%D9%85%D8%AA-%D8%B1%D9%88%D8%B2-%D9%85%D9%88%D8%A8%D8%A7%DB%8C%D9%84/"
+
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+                try:
+                    car_html = requests.get(car_url, headers=headers, timeout=10).text
+                    import re
+                    car_html = re.sub(r'<script.*?</script>', '', car_html, flags=re.DOTALL|re.IGNORECASE)
+                    car_html = re.sub(r'<style.*?</style>', '', car_html, flags=re.DOTALL|re.IGNORECASE)
+                    car_html = re.sub(r'<[^>]+>', ' ', car_html)
+                    car_html = re.sub(r'\s+', ' ', car_html).strip()
+                except:
+                    car_html = "خطا در دریافت اطلاعات از سایت"
+                
+                try:
+                    mob_html = requests.get(mob_url, headers=headers, timeout=10).text
+                    import re
+                    mob_html = re.sub(r'<script.*?</script>', '', mob_html, flags=re.DOTALL|re.IGNORECASE)
+                    mob_html = re.sub(r'<style.*?</style>', '', mob_html, flags=re.DOTALL|re.IGNORECASE)
+                    mob_html = re.sub(r'<[^>]+>', ' ', mob_html)
+                    mob_html = re.sub(r'\s+', ' ', mob_html).strip()
+                except:
+                    mob_html = "خطا در دریافت اطلاعات از سایت"
 
                 # Fetching structured JSON for Cars
                 car_prompt = (
-                    f"ارائه لیست جامع و دقیق قیمت روز خودروهای صفر در ایران برای تاریخ {today}. "
-                    f"لطفا از منابع زیر برای استخراج دقیق‌ترین قیمت‌ها استفاده کنید:\n{sources}\n"
-                    "بسیار مهم: قیمت کارخانه و قیمت بازار باید دقیق و به روز باشند. "
-                    "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد (هیچ متن دیگری اضافه نکن):\n"
+                    f"امروز {today} است. وظیفه شما استخراج دقیق‌ترین و بروزترین قیمت خودروهای صفر در ایران است. "
+                    f"در ادامه محتوای متنی سایت ایران جیب (منبع معتبر قیمت خودرو) آورده شده است. "
+                    f"لطفا قیمت‌ها را دقیقا از این متن استخراج کنید:\n\n{car_html[:25000]}\n\n"
+                    "قیمت‌ها باید دقیقا مطابق با متن بالا باشند. "
+                    "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد:\n"
                     "{\n"
                     "  \"ایران خودرو\": {\n"
                     "    \"models\": [\n"
@@ -984,14 +1023,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "    ]\n"
                     "  }\n"
                     "}\n"
-                    "تمام برندهای اصلی را شامل شود. قیمت‌ها حتما به تومان و به صورت عدد باشند."
+                    "تمام برندهای اصلی (سایپا، مدیران خودرو، کرمان موتور و غیره) را شامل شود. قیمت‌ها به تومان و عدد باشند."
                 )
                 car_resp = model.generate_content(car_prompt)
                 
                 # Fetching structured JSON for Mobiles
                 mob_prompt = (
-                    f"ارائه لیست قیمت روز گوشی‌های موبایل در ایران برای تاریخ {today}. "
-                    "مشابه خودرو، قیمت رسمی (گارانتی‌دار) و قیمت بازار (بدون گارانتی یا کف بازار) را تفکیک کنید. "
+                    f"امروز {today} است. وظیفه شما استخراج دقیق‌ترین و بروزترین قیمت گوشی‌های موبایل در ایران است. "
+                    f"در ادامه محتوای متنی سایت ایران جیب (منبع معتبر قیمت موبایل) آورده شده است. "
+                    f"لطفا قیمت‌ها را دقیقا از این متن استخراج کنید:\n\n{mob_html[:25000]}\n\n"
+                    "قیمت رسمی (با گارانتی) و قیمت بازار را تفکیک کنید. "
                     "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد:\n"
                     "{\n"
                     "  \"Samsung\": {\n"
@@ -1138,16 +1179,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         search_query = text.lower()
         
         # Search in Cars
-        effective_db = get_effective_car_db()
-        for brand, b_data in effective_db.items():
+        effective_car_db = get_effective_car_db()
+        for brand, b_data in effective_car_db.items():
             if search_query in brand.lower():
                 results.append(f"🏢 **برند:** {brand}")
-            for model in b_data["models"]:
+            for model in b_data.get("models", []):
                 if search_query in model["name"].lower():
                     results.append(f"🚗 **مدل:** {model['name']} ({brand})")
-                for variant in model["variants"]:
+                for variant in model.get("variants", []):
                     if search_query in variant["name"].lower():
-                        p_val = variant['marketPrice']
+                        p_val = variant.get('marketPrice', 0)
                         try:
                             p_formatted = f"{int(float(str(p_val).replace(',', ''))):,} تومان"
                         except:
@@ -1155,12 +1196,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         results.append(f"🔹 **تیپ:** {variant['name']} ({model['name']}) -> {p_formatted}")
         
         # Search in Mobiles
-        for brand, b_data in MOBILE_DB.items():
+        effective_mob_db = get_effective_mobile_db()
+        for brand, b_data in effective_mob_db.items():
             if search_query in brand.lower():
-                results.append(f"📱 **برند موبایل:** {brand}")
+                results.append(f"📱 **برند:** {brand}")
             for model in b_data.get("models", []):
                 if search_query in model["name"].lower():
-                    results.append(f"📲 **مدل موبایل:** {model['name']} ({brand}) -> {model['price']} میلیون تومان")
+                    results.append(f"📲 **مدل:** {model['name']} ({brand})")
+                for variant in model.get("variants", []):
+                    if search_query in variant["name"].lower():
+                        p_val = variant.get('marketPrice', 0)
+                        try:
+                            p_formatted = f"{int(float(str(p_val).replace(',', ''))):,} تومان"
+                        except:
+                            p_formatted = str(p_val)
+                        results.append(f"🔹 **مدل:** {variant['name']} ({model['name']}) -> {p_formatted}")
 
         if results:
             response_text = "🔍 **نتایج جستجو:**\n\n" + "\n".join(results[:15])
@@ -1211,23 +1261,32 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             global CAR_DB_EXCEL, MOBILE_DB_EXCEL
-            CAR_DB_EXCEL = {}
-            MOBILE_DB_EXCEL = {}
+            new_car_db = {}
+            new_mobile_db = {}
+            has_cars = False
+            has_mobiles = False
             
             for index, row in df.iterrows():
-                row_type = str(row.get('type', 'car')).lower()
-                brand = str(row['brand'])
-                model_name = str(row['model'])
-                variant_name = str(row.get('variant', ''))
+                row_type_val = row.get('type', 'car')
+                if pd.isna(row_type_val) or str(row_type_val).strip() == '':
+                    row_type = 'car'
+                else:
+                    row_type = str(row_type_val).lower().strip()
+                    
+                brand = str(row['brand']).strip()
+                model_name = str(row['model']).strip()
+                variant_name = str(row.get('variant', '')).strip()
+                if pd.isna(variant_name) or variant_name == 'nan': variant_name = ''
                 
                 if row_type == 'car':
-                    if brand not in CAR_DB_EXCEL:
-                        CAR_DB_EXCEL[brand] = {"models": []}
+                    has_cars = True
+                    if brand not in new_car_db:
+                        new_car_db[brand] = {"models": []}
                     
-                    model_obj = next((m for m in CAR_DB_EXCEL[brand]["models"] if m["name"] == model_name), None)
+                    model_obj = next((m for m in new_car_db[brand]["models"] if m["name"] == model_name), None)
                     if not model_obj:
                         model_obj = {"name": model_name, "variants": []}
-                        CAR_DB_EXCEL[brand]["models"].append(model_obj)
+                        new_car_db[brand]["models"].append(model_obj)
                     
                     model_obj["variants"].append({
                         "name": variant_name,
@@ -1235,13 +1294,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "marketPrice": row['marketPrice']
                     })
                 elif row_type == 'mobile':
-                    if brand not in MOBILE_DB_EXCEL:
-                        MOBILE_DB_EXCEL[brand] = {"models": []}
+                    has_mobiles = True
+                    if brand not in new_mobile_db:
+                        new_mobile_db[brand] = {"models": []}
                     
-                    model_obj = next((m for m in MOBILE_DB_EXCEL[brand]["models"] if m["name"] == model_name), None)
+                    model_obj = next((m for m in new_mobile_db[brand]["models"] if m["name"] == model_name), None)
                     if not model_obj:
                         model_obj = {"name": model_name, "variants": []}
-                        MOBILE_DB_EXCEL[brand]["models"].append(model_obj)
+                        new_mobile_db[brand]["models"].append(model_obj)
                     
                     model_obj["variants"].append({
                         "name": variant_name,
@@ -1249,10 +1309,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "officialPrice": row.get('factoryPrice', 0)
                     })
 
-            save_car_db("excel")
-            save_mobile_db("excel")
+            if has_cars:
+                CAR_DB_EXCEL = new_car_db
+                save_car_db("excel")
+            if has_mobiles:
+                MOBILE_DB_EXCEL = new_mobile_db
+                save_mobile_db("excel")
             
-            await update.message.reply_text(f"✅ فایل اکسل با موفقیت پردازش شد. {len(df)} رکورد بروزرسانی شد.")
+            await update.message.reply_text(f"✅ فایل اکسل با موفقیت پردازش شد. {len(df)} رکورد بررسی شد.")
             os.remove(file_path)
 
         except Exception as e:
