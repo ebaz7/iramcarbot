@@ -522,27 +522,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "mobile_list_full":
-        d = load_data()
-        source = d.get("ai_config", {}).get("source", "gemini")
-        if source == 'gemini' and GEMINI_API_KEY:
-            await query.edit_message_text("⏳ در حال دریافت لیست قیمت موبایل از Gemini...")
-            try:
-                genai.configure(api_key=GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-3-flash-preview')
-                prompt = (
-                    f"یک لیست بسیار کامل و جامع از آخرین قیمت روز گوشی‌های موبایل در بازار ایران برای سال {jdatetime.date.today().year} و تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} تهیه کن. "
-                    "بسیار مهم: قیمت‌ها باید کاملاً به‌روز و مربوط به همین لحظه باشند. "
-                    "دسته‌بندی بر اساس برندهای (Apple, Samsung, Xiaomi, Poco, Motorola) باشد. "
-                    "برای هر مدل، قیمت دقیق به 'تومان' ذکر شود (از کلمه 'تومان' استفاده کن، نه 'م ت' یا حروف انگلیسی). "
-                    "خروجی باید در فرمت Markdown، با سرفصل‌های بولد برای برندها، لیست‌های نقطه‌ای برای مدل‌ها و قیمت‌ها، و خطوط جداکننده (---) بین برندها باشد تا خوانایی بالایی داشته باشد. "
-                    "فقط از زبان فارسی استفاده کن و از آوردن حروف انگلیسی غیرضروری خودداری کن. از ایموجی‌های مناسب استفاده کن."
-                )
-                response = model.generate_content(prompt)
-                await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")]])) 
-            except Exception as e:
-                await query.edit_message_text(f"❌ خطا در ارتباط با Gemini: {e}")
-        else:
-            await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است. لطفا از منوی ادمین تنظیم کنید.")
+        if not MOBILE_DB:
+            await query.edit_message_text("⚠️ دیتابیس موبایل خالی است.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")]]))
+            return
+
+        lines = [f"📱 **لیست قیمت روز موبایل**\n📅 تاریخ: {jdatetime.date.today().strftime('%Y/%m/%d')}\n"]
+        for brand, b_data in MOBILE_DB.items():
+            lines.append(f"\n🏷 **{brand}**")
+            lines.append("-------------------")
+            for model in b_data.get("models", []):
+                price = model['price']
+                try: p_str = f"{int(float(str(price).replace(',', ''))):,} تومان"
+                except: p_str = str(price)
+                lines.append(f"🔹 {model['name']} ({model.get('storage', '-')}) ➔ {p_str}")
+            lines.append("-------------------")
+
+        # Split into messages of max 4000 chars
+        full_text = "\n".join(lines)
+        chunks = [full_text[i:i+4000] for i in range(0, len(full_text), 4000)]
+        
+        for i, chunk in enumerate(chunks):
+            if i == 0:
+                await query.edit_message_text(chunk, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")]]))
+            else:
+                await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode='Markdown')
         return
 
     if data == "mobile_list_categories":
@@ -596,28 +599,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "car_list_full":
-        d = load_data()
-        source = d.get("ai_config", {}).get("source", "gemini")
-        if source == 'gemini' and GEMINI_API_KEY:
-            await query.edit_message_text("⏳ در حال دریافت لیست قیمت خودرو از Gemini...")
-            try:
-                genai.configure(api_key=GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-3-flash-preview')
-                prompt = (
-                    f"یک لیست بسیار کامل و جامع از آخرین قیمت روز خودروهای صفر کیلومتر در بازار ایران برای سال {jdatetime.date.today().year} و تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} تهیه کن. "
-                    "بسیار مهم: قیمت‌ها باید کاملاً به‌روز و مربوط به همین لحظه باشند. "
-                    "لیست باید شامل تمام محصولات (ایران خودرو، سایپا، کرمان موتور، بهمن موتور و خودروهای وارداتی) باشد. "
-                    "برای هر خودرو حتماً این موارد را ذکر کن: ۱. نام خودرو ۲. قیمت کارخانه ۳. قیمت بازار ۴. اختلاف قیمت. "
-                    "قیمت‌ها را به 'تومان' بنویس (مثلا 750,000,000 تومان). از حروف انگلیسی یا مخفف‌های نامفهوم استفاده نکن. "
-                    "خروجی باید در فرمت Markdown، به صورت دسته‌بندی شده بر اساس کمپانی، با سرفصل‌های بولد و خطوط جداکننده (---) باشد تا خوانایی بالایی داشته باشد. "
-                    "فقط از زبان فارسی استفاده کن. از ایموجی‌های مناسب استفاده کن."
-                )
-                response = model.generate_content(prompt)
-                await query.edit_message_text(response.text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")]])) 
-            except Exception as e:
-                await query.edit_message_text(f"❌ خطا در ارتباط با Gemini: {e}")
-        else:
-            await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است. لطفا از منوی ادمین تنظیم کنید.")
+        if not CAR_DB:
+            await query.edit_message_text("⚠️ دیتابیس خودرو خالی است.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")]]))
+            return
+
+        lines = [f"🚗 **لیست قیمت روز خودرو**\n📅 تاریخ: {jdatetime.date.today().strftime('%Y/%m/%d')}\n"]
+        for brand, b_data in CAR_DB.items():
+            lines.append(f"\n🏢 **{brand}**")
+            lines.append("-------------------")
+            for model in b_data.get("models", []):
+                for variant in model.get("variants", []):
+                    m_price = variant['marketPrice']
+                    try: p_str = f"{int(float(str(m_price).replace(',', ''))):,} تومان"
+                    except: p_str = str(m_price)
+                    lines.append(f"🔹 {model['name']} ({variant['name']}) ➔ {p_str}")
+            lines.append("-------------------")
+
+        full_text = "\n".join(lines)
+        chunks = [full_text[i:i+4000] for i in range(0, len(full_text), 4000)]
+        
+        for i, chunk in enumerate(chunks):
+            if i == 0:
+                await query.edit_message_text(chunk, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")]]))
+            else:
+                await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode='Markdown')
         return
 
     if data == "car_list_categories":
@@ -775,84 +780,66 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         d = load_data()
         conf = d.get("ai_config", {})
         source = conf.get("source", "gemini")
+        today = jdatetime.date.today().strftime('%Y/%m/%d')
         
-        await query.edit_message_text(f"⏳ در حال ارسال درخواست آپدیت به {source}...")
+        await query.edit_message_text(f"⏳ در حال بروزرسانی دیتابیس از طریق هوش مصنوعی...")
         try:
             if source == 'gemini' and GEMINI_API_KEY:
                 genai.configure(api_key=GEMINI_API_KEY)
                 model = genai.GenerativeModel('gemini-3-flash-preview')
                 
-                # Update Cars
+                # Fetching structured JSON for Cars
                 car_prompt = (
-                    f"لیست دقیق قیمت روز خودروهای صفر کیلومتر (داخلی و وارداتی) در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را استخراج کن. "
-                    "خروجی باید شامل نام خودرو، قیمت کارخانه و قیمت بازار به 'تومان' باشد. "
-                    "فقط از زبان فارسی استفاده کن و از حروف انگلیسی غیرضروری خودداری کن."
+                    f"ارائه لیست قیمت روز خودروهای صفر در ایران برای تاریخ {today}. "
+                    "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد:\n"
+                    "{\"ایران خودرو\": {\"models\": [{\"name\": \"پژو 207\", \"variants\": [{\"name\": \"دنده ای\", \"factoryPrice\": 450000000, \"marketPrice\": 750000000}]}]}}\n"
+                    "تمام برندهای اصلی (سایپا، مدیران خودرو، کرمان موتور و غیره) را شامل شود. قیمت‌ها به تومان و عدد باشند."
                 )
-                car_response = model.generate_content(car_prompt)
+                car_resp = model.generate_content(car_prompt)
                 
-                # Update Mobiles
-                mobile_prompt = (
-                    f"لیست دقیق قیمت روز گوشی‌های موبایل (برندهای اصلی) در بازار ایران برای تاریخ {jdatetime.date.today().strftime('%Y/%m/%d')} را استخراج کن. "
-                    "خروجی شامل مدل دقیق و قیمت مصرف‌کننده به 'تومان' باشد. "
-                    "فقط از زبان فارسی استفاده کن و از حروف انگلیسی غیرضروری خودداری کن."
+                # Fetching structured JSON for Mobiles
+                mob_prompt = (
+                    f"ارائه لیست قیمت روز گوشی‌های موبایل در ایران برای تاریخ {today}. "
+                    "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد:\n"
+                    "{\"Samsung\": {\"models\": [{\"name\": \"S24 Ultra\", \"storage\": \"256GB\", \"price\": 75000000}]}}\n"
+                    "برندهای Apple, Samsung, Xiaomi را شامل شود. قیمت‌ها به تومان و عدد باشند."
                 )
-                mobile_response = model.generate_content(mobile_prompt)
+                mob_resp = model.generate_content(mob_prompt)
                 
-                await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از Gemini دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]])) 
-            
-            elif source == 'deepseek' and DEEPSEEK_API_KEY:
-                headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-                
-                # Update Cars
-                car_payload = {
-                    "model": "deepseek-chat",
-                    "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}],
-                    "stream": False
-                }
-                resp_car = requests.post("https://api.deepseek.com/chat/completions", json=car_payload, headers=headers, timeout=30)
-                
-                # Update Mobiles
-                mobile_payload = {
-                    "model": "deepseek-chat",
-                    "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}],
-                    "stream": False
-                }
-                resp_mob = requests.post("https://api.deepseek.com/chat/completions", json=mobile_payload, headers=headers, timeout=30)
-                
-                if resp_car.status_code == 200 and resp_mob.status_code == 200:
-                    await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از DeepSeek دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
-                elif resp_car.status_code == 402 or resp_mob.status_code == 402:
-                    await query.edit_message_text("❌ **خطای اعتبار:** شارژ حساب DeepSeek شما تمام شده است.")
-                else:
-                    await query.edit_message_text(f"❌ خطا در دریافت اطلاعات از DeepSeek. کد خطا: {resp_car.status_code}")
+                def parse_json(text):
+                    try:
+                        # Clean markdown code blocks if present
+                        clean_text = re.sub(r'```json\n?|\n?```', '', text).strip()
+                        return json.loads(clean_text)
+                    except: return None
 
-            elif source == 'openai' and OPENAI_API_KEY:
-                headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+                new_cars = parse_json(car_resp.text)
+                new_mobs = parse_json(mob_resp.text)
+
+                if new_cars:
+                    global CAR_DB
+                    CAR_DB.update(new_cars)
+                    save_car_db()
                 
-                # Update Cars
-                car_payload = {
-                    "model": "gpt-3.5-turbo",
-                    "messages": [{"role": "user", "content": f"لیست قیمت روز خودرو در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
-                }
-                resp_car = requests.post("https://api.openai.com/v1/chat/completions", json=car_payload, headers=headers, timeout=30)
+                if new_mobs:
+                    global MOBILE_DB
+                    MOBILE_DB.update(new_mobs)
+                    try:
+                        with open('mobile_db.json', 'w', encoding='utf-8') as f:
+                            json.dump(MOBILE_DB, f, ensure_ascii=False, indent=4)
+                    except: pass
+
+                # Also save a text version for the "Full List" cache
+                if "cache" not in d: d["cache"] = {}
+                d["cache"]["car_date"] = today
+                d["cache"]["mobile_date"] = today
+                save_data(d)
                 
-                # Update Mobiles
-                mobile_payload = {
-                    "model": "gpt-3.5-turbo",
-                    "messages": [{"role": "user", "content": f"لیست قیمت روز موبایل در ایران {jdatetime.date.today().strftime('%Y/%m/%d')}"}]
-                }
-                resp_mob = requests.post("https://api.openai.com/v1/chat/completions", json=mobile_payload, headers=headers, timeout=30)
-                
-                if resp_car.status_code == 200 and resp_mob.status_code == 200:
-                    await query.edit_message_text("✅ لیست قیمت‌ها با موفقیت از ChatGPT دریافت شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]]))
-                elif resp_car.status_code == 429 or resp_mob.status_code == 429:
-                    await query.edit_message_text("⏳ **خطای محدودیت:** محدودیت تعداد درخواست ChatGPT. لطفا کمی صبر کنید.")
-                else:
-                    await query.edit_message_text(f"❌ خطا در دریافت اطلاعات از ChatGPT. کد خطا: {resp_car.status_code}")
+                await query.edit_message_text("✅ دیتابیس با موفقیت بروزرسانی شد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_ai_control")]])) 
             else:
-                await query.edit_message_text("⚠️ تنظیمات هوش مصنوعی یا API Key ناقص است.")
+                await query.edit_message_text("⚠️ در حال حاضر فقط Gemini برای آپدیت دیتابیس پشتیبانی می‌شود.")
         except Exception as e:
-            await query.edit_message_text(f"❌ خطا در ارتباط با هوش مصنوعی: {e}")
+            await query.edit_message_text(f"❌ خطا در بروزرسانی: {e}")
         return
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
