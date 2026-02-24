@@ -36,7 +36,8 @@ DEFAULT_CONFIG = {
 # Load Databases
 CAR_DB_EXCEL = {}
 CAR_DB_AI = {}
-MOBILE_DB = {}
+MOBILE_DB_EXCEL = {}
+MOBILE_DB_AI = {}
 # ... (Insert DB Logic if using full generator) ...
 YEARS = [1404, 1403, 1402, 1401, 1400, 1399, 1398, 1397, 1396, 1395, 1394, 1393, 1392, 1391, 1390]
 PAINT_CONDITIONS = [
@@ -130,6 +131,16 @@ def save_car_db(db_type="excel"):
     except Exception as e:
         logger.error(f"Error saving car database ({db_type}): {e}")
 
+def save_mobile_db(db_type="excel"):
+    try:
+        filename = 'mobile_db_excel.json' if db_type == "excel" else 'mobile_db_ai.json'
+        db = MOBILE_DB_EXCEL if db_type == "excel" else MOBILE_DB_AI
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(db, f, ensure_ascii=False, indent=4)
+        logger.info(f"Mobile database ({db_type}) saved successfully.")
+    except Exception as e:
+        logger.error(f"Error saving mobile database ({db_type}): {e}")
+
 def load_car_db():
     global CAR_DB_EXCEL, CAR_DB_AI
     try:
@@ -142,6 +153,18 @@ def load_car_db():
     except Exception as e:
         logger.error(f"Error loading car databases: {e}")
 
+def load_mobile_db():
+    global MOBILE_DB_EXCEL, MOBILE_DB_AI
+    try:
+        if os.path.exists('mobile_db_excel.json'):
+            with open('mobile_db_excel.json', 'r', encoding='utf-8') as f:
+                MOBILE_DB_EXCEL = json.load(f)
+        if os.path.exists('mobile_db_ai.json'):
+            with open('mobile_db_ai.json', 'r', encoding='utf-8') as f:
+                MOBILE_DB_AI = json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading mobile databases: {e}")
+
 def get_effective_car_db():
     d = load_data()
     conf = d.get("ai_config", {})
@@ -149,35 +172,61 @@ def get_effective_car_db():
     
     if priority == "ai":
         return CAR_DB_AI
+    if priority == "excel":
+        return CAR_DB_EXCEL
     
-    # Excel Priority with Hybrid Fallback
-    merged = json.loads(json.dumps(CAR_DB_AI)) # Start with AI as base
-    
-    # Overlay Excel
+    # Hybrid Mode (Default/Fallback)
+    merged = json.loads(json.dumps(CAR_DB_AI))
     for brand, b_data in CAR_DB_EXCEL.items():
         if brand not in merged:
             merged[brand] = b_data
             continue
-        
         for model in b_data.get("models", []):
             m_name = model["name"]
             existing_model = next((m for m in merged[brand]["models"] if m["name"] == m_name), None)
-            
             if not existing_model:
                 merged[brand]["models"].append(model)
                 continue
-            
             for variant in model.get("variants", []):
                 v_name = variant["name"]
                 existing_variant = next((v for v in existing_model["variants"] if v["name"] == v_name), None)
-                
                 if not existing_variant:
                     existing_model["variants"].append(variant)
                 else:
-                    # Update only if Excel has a non-zero price
                     if variant.get("marketPrice", 0) > 0:
                         existing_variant.update(variant)
+    return merged
+
+def get_effective_mobile_db():
+    d = load_data()
+    conf = d.get("ai_config", {})
+    priority = conf.get("priority", "excel")
     
+    if priority == "ai":
+        return MOBILE_DB_AI
+    if priority == "excel":
+        return MOBILE_DB_EXCEL
+    
+    # Hybrid Mode
+    merged = json.loads(json.dumps(MOBILE_DB_AI))
+    for brand, b_data in MOBILE_DB_EXCEL.items():
+        if brand not in merged:
+            merged[brand] = b_data
+            continue
+        for model in b_data.get("models", []):
+            m_name = model["name"]
+            existing_model = next((m for m in merged[brand]["models"] if m["name"] == m_name), None)
+            if not existing_model:
+                merged[brand]["models"].append(model)
+                continue
+            for variant in model.get("variants", []):
+                v_name = variant["name"]
+                existing_variant = next((v for v in existing_model["variants"] if v["name"] == v_name), None)
+                if not existing_variant:
+                    existing_model["variants"].append(variant)
+                else:
+                    if variant.get("marketPrice", 0) > 0:
+                        existing_variant.update(variant)
     return merged
 
 
@@ -326,7 +375,7 @@ async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطا: {e}")
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global CAR_DB_EXCEL, CAR_DB_AI, MOBILE_DB
+    global CAR_DB_EXCEL, CAR_DB_AI, MOBILE_DB_EXCEL, MOBILE_DB_AI
     query = update.callback_query
     user_id = query.from_user.id
     data = query.data
@@ -569,19 +618,38 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "mobile_list_full":
-        if not MOBILE_DB:
+        effective_db = get_effective_mobile_db()
+        if not effective_db:
             await query.edit_message_text("⚠️ دیتابیس موبایل خالی است.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")]]))
             return
 
         lines = [f"📱 **لیست قیمت روز موبایل**\n📅 تاریخ: {jdatetime.date.today().strftime('%Y/%m/%d')}\n"]
-        for brand, b_data in MOBILE_DB.items():
+        for brand, b_data in effective_db.items():
             lines.append(f"\n🏷 **{brand}**")
             lines.append("-------------------")
             for model in b_data.get("models", []):
-                price = model['price']
-                try: p_str = f"{int(float(str(price).replace(',', ''))):,} تومان"
-                except: p_str = str(price)
-                lines.append(f"🔹 {model['name']} ({model.get('storage', '-')}) ➔ {p_str}")
+                variants = model.get("variants", [])
+                if not variants and "price" in model:
+                    # Legacy support
+                    price = model['price']
+                    try: p_str = f"{int(float(str(price).replace(',', ''))):,} تومان"
+                    except: p_str = str(price)
+                    lines.append(f"🔹 {model['name']} ({model.get('storage', '-')}) ➔ {p_str}")
+                else:
+                    for variant in variants:
+                        m_price = variant.get('marketPrice', 0)
+                        o_price = variant.get('officialPrice', 0)
+                        
+                        try: m_str = f"{int(float(str(m_price).replace(',', ''))):,} تومان"
+                        except: m_str = str(m_price)
+                        
+                        try: o_str = f"{int(float(str(o_price).replace(',', ''))):,} تومان"
+                        except: o_str = str(o_price)
+
+                        lines.append(f"🔹 **{model['name']} ({variant['name']})**")
+                        if o_price > 0: lines.append(f"   🛡 گارانتی: {o_str}")
+                        lines.append(f"   🏪 بازار: {m_str}")
+                        lines.append("")
             lines.append("-------------------")
 
         # Split into messages of max 4000 chars
@@ -597,19 +665,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "mobile_list_categories":
         keyboard = []
-        if not MOBILE_DB:
+        effective_db = get_effective_mobile_db()
+        if not effective_db:
             await query.edit_message_text("⚠️ دیتابیس موبایل خالی است. لطفا از پنل مدیریت فایل اکسل آپلود کنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")]]))
             return
-        for brand in MOBILE_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"mob_brand_{brand}")])
+        for brand in effective_db.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"mob_brand_{brand}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")])
         await query.edit_message_text("📱 برند موبایل را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data.startswith("mob_brand_"):
         brand_name = data.replace("mob_brand_", "")
-        if brand_name in MOBILE_DB:
+        effective_db = get_effective_mobile_db()
+        if brand_name in effective_db:
             keyboard = []
-            for model in MOBILE_DB[brand_name]["models"]:
+            for model in effective_db[brand_name]["models"]:
                 keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"mob_model_{brand_name}_{model['name']}")])
             keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")])
             await query.edit_message_text(f"مدل‌های {brand_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -621,16 +691,40 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         model_name = parts[3]
         
         found_model = None
-        if brand_name in MOBILE_DB:
-            for m in MOBILE_DB[brand_name]["models"]:
+        effective_db = get_effective_mobile_db()
+        if brand_name in effective_db:
+            for m in effective_db[brand_name]["models"]:
                 if m["name"] == model_name: found_model = m; break
         
         if found_model:
-            text = (f"📱 **قیمت روز موبایل**\\n"
-                    f"🏷 مدل: {found_model['name']}\\n"
-                    f"💾 حافظه: {found_model.get('storage', '-')}\\n"
-                    f"-------------------\\n"
-                    f"💰 **قیمت تقریبی:** {found_model['price']} میلیون تومان")
+            variants = found_model.get("variants", [])
+            if not variants:
+                # Legacy support
+                price = found_model.get('price', '-')
+                try: p_str = f"{int(float(str(price).replace(',', ''))):,} تومان"
+                except: p_str = str(price)
+                
+                text = (f"📱 **قیمت روز موبایل**\n"
+                        f"🏷 مدل: {found_model['name']}\n"
+                        f"💾 حافظه: {found_model.get('storage', '-')}\n"
+                        f"-------------------\n"
+                        f"💰 **قیمت:** {p_str}")
+            else:
+                text = f"📱 **قیمت‌های {found_model['name']}**\n\n"
+                for v in variants:
+                    m_p = v.get('marketPrice', 0)
+                    o_p = v.get('officialPrice', 0)
+                    
+                    try: m_str = f"{int(float(str(m_p).replace(',', ''))):,} تومان"
+                    except: m_str = str(m_p)
+                    
+                    try: o_str = f"{int(float(str(o_p).replace(',', ''))):,} تومان"
+                    except: o_str = str(o_p)
+
+                    text += f"🔹 **{v['name']}**\n"
+                    if o_p > 0: text += f"   🛡 گارانتی: {o_str}\n"
+                    text += f"   🏪 بازار: {m_str}\n\n"
+            
             keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"mob_brand_{brand_name}")]]
             await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return
@@ -851,15 +945,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         source = conf.get("source", "gemini")
         today = jdatetime.date.today().strftime('%Y/%m/%d')
         
-        await query.edit_message_text(f"⏳ در حال بروزرسانی دیتابیس از طریق هوش مصنوعی...")
+        await query.edit_message_text(f"⏳ در حال بروزرسانی دیتابیس از طریق هوش مصنوعی (با استعلام از منابع معتبر)...")
         try:
             if source == 'gemini' and GEMINI_API_KEY:
                 genai.configure(api_key=GEMINI_API_KEY)
-                model = genai.GenerativeModel('gemini-3-flash-preview')
+                # Using Google Search tool for real-time price grounding
+                try:
+                    model = genai.GenerativeModel('gemini-3-flash-preview', tools=[{'google_search': {}}])
+                except:
+                    model = genai.GenerativeModel('gemini-3-flash-preview')
                 
+                # Reference URLs
+                sources = (
+                    "1. IranJib (https://www.iranjib.ir/showgroup/45/)\n"
+                    "2. Bama (https://bama.ir/car-prices)\n"
+                    "3. Divar (https://divar.ir/car)\n"
+                )
+
                 # Fetching structured JSON for Cars
                 car_prompt = (
                     f"ارائه لیست جامع و دقیق قیمت روز خودروهای صفر در ایران برای تاریخ {today}. "
+                    f"لطفا از منابع زیر برای استخراج دقیق‌ترین قیمت‌ها استفاده کنید:\n{sources}\n"
                     "بسیار مهم: قیمت کارخانه و قیمت بازار باید دقیق و به روز باشند. "
                     "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد (هیچ متن دیگری اضافه نکن):\n"
                     "{\n"
@@ -878,16 +984,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "    ]\n"
                     "  }\n"
                     "}\n"
-                    "تمام برندهای اصلی (سایپا، مدیران خودرو، کرمان موتور، بهمن موتور، فردا موتور و خودروهای وارداتی جدید) را شامل شود. "
-                    "قیمت‌ها حتما به تومان و به صورت عدد (بدون کاما) باشند. اگر قیمت کارخانه موجود نیست، عدد 0 قرار دهید."
+                    "تمام برندهای اصلی را شامل شود. قیمت‌ها حتما به تومان و به صورت عدد باشند."
                 )
                 car_resp = model.generate_content(car_prompt)
                 
                 # Fetching structured JSON for Mobiles
                 mob_prompt = (
                     f"ارائه لیست قیمت روز گوشی‌های موبایل در ایران برای تاریخ {today}. "
+                    "مشابه خودرو، قیمت رسمی (گارانتی‌دار) و قیمت بازار (بدون گارانتی یا کف بازار) را تفکیک کنید. "
                     "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد:\n"
-                    "{\"Samsung\": {\"models\": [{\"name\": \"S24 Ultra\", \"storage\": \"256GB\", \"price\": 75000000}]}}\n"
+                    "{\n"
+                    "  \"Samsung\": {\n"
+                    "    \"models\": [\n"
+                    "      {\n"
+                    "        \"name\": \"Galaxy S24 Ultra\",\n"
+                    "        \"variants\": [\n"
+                    "          {\n"
+                    "            \"name\": \"256GB RAM 12\",\n"
+                    "            \"officialPrice\": 72000000,\n"
+                    "            \"marketPrice\": 68000000\n"
+                    "          }\n"
+                    "        ]\n"
+                    "      }\n"
+                    "    ]\n"
+                    "  }\n"
+                    "}\n"
                     "برندهای Apple, Samsung, Xiaomi را شامل شود. قیمت‌ها به تومان و عدد باشند."
                 )
                 mob_resp = model.generate_content(mob_prompt)
@@ -907,11 +1028,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     save_car_db("ai")
                 
                 if new_mobs:
-                    MOBILE_DB.update(new_mobs)
-                    try:
-                        with open('mobile_db.json', 'w', encoding='utf-8') as f:
-                            json.dump(MOBILE_DB, f, ensure_ascii=False, indent=4)
-                    except: pass
+                    MOBILE_DB_AI.update(new_mobs)
+                    save_mobile_db("ai")
 
                 # Also save a text version for the "Full List" cache
                 if "cache" not in d: d["cache"] = {}
@@ -1070,7 +1188,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global CAR_DB_EXCEL, MOBILE_DB
+    global CAR_DB_EXCEL, MOBILE_DB_EXCEL
     user_id = update.effective_user.id
     state_info = get_state(user_id)
 
@@ -1092,9 +1210,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(file_path)
                 return
 
-            global CAR_DB_EXCEL, MOBILE_DB
+            global CAR_DB_EXCEL, MOBILE_DB_EXCEL
             CAR_DB_EXCEL = {}
-            MOBILE_DB = {}
+            MOBILE_DB_EXCEL = {}
             
             for index, row in df.iterrows():
                 row_type = str(row.get('type', 'car')).lower()
@@ -1117,23 +1235,22 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "marketPrice": row['marketPrice']
                     })
                 elif row_type == 'mobile':
-                    if brand not in MOBILE_DB:
-                        MOBILE_DB[brand] = {"models": []}
+                    if brand not in MOBILE_DB_EXCEL:
+                        MOBILE_DB_EXCEL[brand] = {"models": []}
                     
-                    # For mobiles, we use 'price' instead of factory/market in the current DB structure
-                    # But we can adapt or just use marketPrice as the main price
-                    MOBILE_DB[brand]["models"].append({
-                        "name": model_name,
-                        "storage": variant_name,
-                        "price": row['marketPrice']
+                    model_obj = next((m for m in MOBILE_DB_EXCEL[brand]["models"] if m["name"] == model_name), None)
+                    if not model_obj:
+                        model_obj = {"name": model_name, "variants": []}
+                        MOBILE_DB_EXCEL[brand]["models"].append(model_obj)
+                    
+                    model_obj["variants"].append({
+                        "name": variant_name,
+                        "marketPrice": row['marketPrice'],
+                        "officialPrice": row.get('factoryPrice', 0)
                     })
 
-            save_car_db()
-            # Also need to save mobile db
-            try:
-                with open('mobile_db.json', 'w', encoding='utf-8') as f:
-                    json.dump(MOBILE_DB, f, ensure_ascii=False, indent=4)
-            except: pass
+            save_car_db("excel")
+            save_mobile_db("excel")
             
             await update.message.reply_text(f"✅ فایل اکسل با موفقیت پردازش شد. {len(df)} رکورد بروزرسانی شد.")
             os.remove(file_path)
@@ -1168,12 +1285,7 @@ async def post_init(application):
 
 if __name__ == '__main__':
     load_car_db()
-    # Load Mobile DB
-    try:
-        if os.path.exists('mobile_db.json'):
-            with open('mobile_db.json', 'r', encoding='utf-8') as f:
-                MOBILE_DB = json.load(f)
-    except: pass
+    load_mobile_db()
     if TOKEN == 'REPLACE_ME_TOKEN': print("⚠️ Configure token in bot.py")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
