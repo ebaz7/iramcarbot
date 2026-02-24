@@ -33,8 +33,9 @@ DEFAULT_CONFIG = {
     "support": {"label": "📞 پشتیبانی", "active": True, "type": "dynamic"}
 }
 
-# Load Database
-CAR_DB = {} 
+# Load Databases
+CAR_DB_EXCEL = {}
+CAR_DB_AI = {}
 MOBILE_DB = {}
 # ... (Insert DB Logic if using full generator) ...
 YEARS = [1404, 1403, 1402, 1401, 1400, 1399, 1398, 1397, 1396, 1395, 1394, 1393, 1392, 1391, 1390]
@@ -119,22 +120,65 @@ def save_data(data):
     except Exception as e:
         logger.error(f"❌ Error saving data: {e}")
 
-def save_car_db():
+def save_car_db(db_type="excel"):
     try:
-        with open('car_db.json', 'w', encoding='utf-8') as f:
-            json.dump(CAR_DB, f, ensure_ascii=False, indent=4)
-        logger.info("Car database saved successfully.")
+        filename = 'car_db_excel.json' if db_type == "excel" else 'car_db_ai.json'
+        db = CAR_DB_EXCEL if db_type == "excel" else CAR_DB_AI
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(db, f, ensure_ascii=False, indent=4)
+        logger.info(f"Car database ({db_type}) saved successfully.")
     except Exception as e:
-        logger.error(f"Error saving car database: {e}")
+        logger.error(f"Error saving car database ({db_type}): {e}")
 
 def load_car_db():
-    global CAR_DB
+    global CAR_DB_EXCEL, CAR_DB_AI
     try:
-        if os.path.exists('car_db.json'):
-            with open('car_db.json', 'r', encoding='utf-8') as f:
-                CAR_DB = json.load(f)
+        if os.path.exists('car_db_excel.json'):
+            with open('car_db_excel.json', 'r', encoding='utf-8') as f:
+                CAR_DB_EXCEL = json.load(f)
+        if os.path.exists('car_db_ai.json'):
+            with open('car_db_ai.json', 'r', encoding='utf-8') as f:
+                CAR_DB_AI = json.load(f)
     except Exception as e:
-        logger.error(f"Error loading car database: {e}")
+        logger.error(f"Error loading car databases: {e}")
+
+def get_effective_car_db():
+    d = load_data()
+    conf = d.get("ai_config", {})
+    priority = conf.get("priority", "excel")
+    
+    if priority == "ai":
+        return CAR_DB_AI
+    
+    # Excel Priority with Hybrid Fallback
+    merged = json.loads(json.dumps(CAR_DB_AI)) # Start with AI as base
+    
+    # Overlay Excel
+    for brand, b_data in CAR_DB_EXCEL.items():
+        if brand not in merged:
+            merged[brand] = b_data
+            continue
+        
+        for model in b_data.get("models", []):
+            m_name = model["name"]
+            existing_model = next((m for m in merged[brand]["models"] if m["name"] == m_name), None)
+            
+            if not existing_model:
+                merged[brand]["models"].append(model)
+                continue
+            
+            for variant in model.get("variants", []):
+                v_name = variant["name"]
+                existing_variant = next((v for v in existing_model["variants"] if v["name"] == v_name), None)
+                
+                if not existing_variant:
+                    existing_model["variants"].append(variant)
+                else:
+                    # Update only if Excel has a non-zero price
+                    if variant.get("marketPrice", 0) > 0:
+                        existing_variant.update(variant)
+    
+    return merged
 
 
 def register_user(user_id):
@@ -282,7 +326,7 @@ async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطا: {e}")
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global CAR_DB, MOBILE_DB
+    global CAR_DB_EXCEL, CAR_DB_AI, MOBILE_DB
     query = update.callback_query
     user_id = query.from_user.id
     data = query.data
@@ -594,28 +638,44 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- CAR PRICE LIST (AI-Powered) ---
     if data == "menu_prices":
         keyboard = [
-            [InlineKeyboardButton("📋 لیست کامل (هوش مصنوعی)", callback_data="car_list_full")],
-            [InlineKeyboardButton("🏢 انتخاب شرکت (دیتابیس)", callback_data="car_list_categories")],
+            [InlineKeyboardButton("📋 لیست کلی قیمت‌ها", callback_data="car_list_full")],
+            [InlineKeyboardButton("🏢 انتخاب برند خودرو", callback_data="car_list_categories")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
         ]
         await query.edit_message_text("🚗 نحوه نمایش لیست قیمت خودرو را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     if data == "car_list_full":
-        if not CAR_DB:
+        effective_db = get_effective_car_db()
+        if not effective_db:
             await query.edit_message_text("⚠️ دیتابیس خودرو خالی است.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")]]))
             return
 
         lines = [f"🚗 **لیست قیمت روز خودرو**\n📅 تاریخ: {jdatetime.date.today().strftime('%Y/%m/%d')}\n"]
-        for brand, b_data in CAR_DB.items():
+        for brand, b_data in effective_db.items():
             lines.append(f"\n🏢 **{brand}**")
             lines.append("-------------------")
             for model in b_data.get("models", []):
                 for variant in model.get("variants", []):
-                    m_price = variant['marketPrice']
-                    try: p_str = f"{int(float(str(m_price).replace(',', ''))):,} تومان"
-                    except: p_str = str(m_price)
-                    lines.append(f"🔹 {model['name']} ({variant['name']}) ➔ {p_str}")
+                    m_price = variant.get('marketPrice', 0)
+                    f_price = variant.get('factoryPrice', 0)
+                    diff = m_price - f_price if f_price > 0 else 0
+                    
+                    try: m_str = f"{int(float(str(m_price).replace(',', ''))):,} تومان"
+                    except: m_str = str(m_price)
+                    
+                    try: f_str = f"{int(float(str(f_price).replace(',', ''))):,} تومان"
+                    except: f_str = str(f_price)
+                    
+                    try: d_str = f"{int(float(str(diff).replace(',', ''))):,} تومان"
+                    except: d_str = str(diff)
+
+                    lines.append(f"🔹 **{model['name']} ({variant['name']})**")
+                    lines.append(f"   🏠 کارخانه: {f_str}")
+                    lines.append(f"   🏪 بازار: {m_str}")
+                    if diff > 0:
+                        lines.append(f"   📈 اختلاف: {d_str}")
+                    lines.append("")
             lines.append("-------------------")
 
         full_text = "\n".join(lines)
@@ -630,10 +690,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "car_list_categories":
         keyboard = []
-        if not CAR_DB:
-            await query.edit_message_text("⚠️ دیتابیس خودرو خالی است. لطفا از پنل مدیریت فایل اکسل آپلود کنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")]]))
+        effective_db = get_effective_car_db()
+        if not effective_db:
+            await query.edit_message_text("⚠️ دیتابیس خودرو خالی است. لطفا از پنل مدیریت فایل اکسل آپلود کنید یا آپلود AI را بزنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")]]))
             return
-        for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
+        for brand in effective_db.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")])
         await query.edit_message_text("🏢 شرکت سازنده را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
@@ -641,19 +702,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("brand_"):
         brand_name = data.replace("brand_", "")
         current_state = get_state(user_id)["state"]
+        effective_db = get_effective_car_db()
         if current_state == STATE_ESTIMATE_BRAND:
             update_data(user_id, "brand", brand_name)
             set_state(user_id, STATE_ESTIMATE_MODEL)
             keyboard = []
-            if brand_name in CAR_DB:
-                for model in CAR_DB[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
+            if brand_name in effective_db:
+                for model in effective_db[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
             keyboard.append([InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")])
             await query.edit_message_text(f"خودروی {brand_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
             return
         
-        if brand_name in CAR_DB:
+        if brand_name in effective_db:
             keyboard = []
-            for model in CAR_DB[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
+            for model in effective_db[brand_name]["models"]: keyboard.append([InlineKeyboardButton(model["name"], callback_data=f"model_{model['name']}")])
             keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_prices")])
             await query.edit_message_text(f"مدل‌های {brand_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
@@ -674,7 +736,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         found_model, brand_name = None, ""
-        for b_name, b_data in CAR_DB.items():
+        effective_db = get_effective_car_db()
+        for b_name, b_data in effective_db.items():
             for m in b_data["models"]:
                 if m["name"] == model_name: found_model = m; brand_name = b_name; break
         
@@ -690,7 +753,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = data.split("_")
         model_name, idx = parts[1], int(parts[2])
         found_variant = None
-        for b_data in CAR_DB.values():
+        effective_db = get_effective_car_db()
+        for b_data in effective_db.values():
             for m in b_data["models"]:
                 if m["name"] == model_name and idx < len(m["variants"]): found_variant = m["variants"][idx]; break
         
@@ -739,7 +803,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_estimate":
         set_state(user_id, STATE_ESTIMATE_BRAND)
         keyboard = []
-        for brand in CAR_DB.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
+        effective_db = get_effective_car_db()
+        for brand in effective_db.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"brand_{brand}")])
         keyboard.append([InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")])
         await query.edit_message_text("برند را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
@@ -758,7 +823,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         brand, model, year, mileage = user_data.get("brand"), user_data.get("model"), user_data.get("year"), user_data.get("mileage")
         
         zero_price = 800
-        for b in CAR_DB.values():
+        effective_db = get_effective_car_db()
+        for b in effective_db.values():
             for m in b["models"]:
                 if m["name"] == model: zero_price = m["variants"][0]["marketPrice"]; break
         
@@ -793,10 +859,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Fetching structured JSON for Cars
                 car_prompt = (
-                    f"ارائه لیست قیمت روز خودروهای صفر در ایران برای تاریخ {today}. "
-                    "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد:\n"
-                    "{\"ایران خودرو\": {\"models\": [{\"name\": \"پژو 207\", \"variants\": [{\"name\": \"دنده ای\", \"factoryPrice\": 450000000, \"marketPrice\": 750000000}]}]}}\n"
-                    "تمام برندهای اصلی (سایپا، مدیران خودرو، کرمان موتور و غیره) را شامل شود. قیمت‌ها به تومان و عدد باشند."
+                    f"ارائه لیست جامع و دقیق قیمت روز خودروهای صفر در ایران برای تاریخ {today}. "
+                    "بسیار مهم: قیمت کارخانه و قیمت بازار باید دقیق و به روز باشند. "
+                    "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد (هیچ متن دیگری اضافه نکن):\n"
+                    "{\n"
+                    "  \"ایران خودرو\": {\n"
+                    "    \"models\": [\n"
+                    "      {\n"
+                    "        \"name\": \"پژو 207\",\n"
+                    "        \"variants\": [\n"
+                    "          {\n"
+                    "            \"name\": \"دنده ای هیدرولیک\",\n"
+                    "            \"factoryPrice\": 450000000,\n"
+                    "            \"marketPrice\": 750000000\n"
+                    "          }\n"
+                    "        ]\n"
+                    "      }\n"
+                    "    ]\n"
+                    "  }\n"
+                    "}\n"
+                    "تمام برندهای اصلی (سایپا، مدیران خودرو، کرمان موتور، بهمن موتور، فردا موتور و خودروهای وارداتی جدید) را شامل شود. "
+                    "قیمت‌ها حتما به تومان و به صورت عدد (بدون کاما) باشند. اگر قیمت کارخانه موجود نیست، عدد 0 قرار دهید."
                 )
                 car_resp = model.generate_content(car_prompt)
                 
@@ -820,8 +903,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 new_mobs = parse_json(mob_resp.text)
 
                 if new_cars:
-                    CAR_DB.update(new_cars)
-                    save_car_db()
+                    CAR_DB_AI.update(new_cars)
+                    save_car_db("ai")
                 
                 if new_mobs:
                     MOBILE_DB.update(new_mobs)
@@ -937,7 +1020,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         search_query = text.lower()
         
         # Search in Cars
-        for brand, b_data in CAR_DB.items():
+        effective_db = get_effective_car_db()
+        for brand, b_data in effective_db.items():
             if search_query in brand.lower():
                 results.append(f"🏢 **برند:** {brand}")
             for model in b_data["models"]:
@@ -986,6 +1070,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global CAR_DB_EXCEL, MOBILE_DB
     user_id = update.effective_user.id
     state_info = get_state(user_id)
 
@@ -1007,8 +1092,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(file_path)
                 return
 
-            global CAR_DB, MOBILE_DB
-            CAR_DB = {}
+            global CAR_DB_EXCEL, MOBILE_DB
+            CAR_DB_EXCEL = {}
             MOBILE_DB = {}
             
             for index, row in df.iterrows():
@@ -1018,13 +1103,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 variant_name = str(row.get('variant', ''))
                 
                 if row_type == 'car':
-                    if brand not in CAR_DB:
-                        CAR_DB[brand] = {"models": []}
+                    if brand not in CAR_DB_EXCEL:
+                        CAR_DB_EXCEL[brand] = {"models": []}
                     
-                    model_obj = next((m for m in CAR_DB[brand]["models"] if m["name"] == model_name), None)
+                    model_obj = next((m for m in CAR_DB_EXCEL[brand]["models"] if m["name"] == model_name), None)
                     if not model_obj:
                         model_obj = {"name": model_name, "variants": []}
-                        CAR_DB[brand]["models"].append(model_obj)
+                        CAR_DB_EXCEL[brand]["models"].append(model_obj)
                     
                     model_obj["variants"].append({
                         "name": variant_name,
