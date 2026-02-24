@@ -610,8 +610,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- MOBILE FLOW (AI-Powered) ---
     if data == "menu_mobile_list":
         keyboard = [
-            [InlineKeyboardButton("📲 لیست کامل (هوش مصنوعی)", callback_data="mobile_list_full")],
-            [InlineKeyboardButton("📂 انتخاب برند (دیتابیس)", callback_data="mobile_list_categories")],
+            [InlineKeyboardButton("📋 لیست کلی قیمت‌ها", callback_data="mobile_list_full")],
+            [InlineKeyboardButton("🏢 انتخاب برند موبایل", callback_data="mobile_list_categories")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
         ]
         await query.edit_message_text("📱 نحوه نمایش لیست موبایل را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -676,7 +676,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = []
         effective_db = get_effective_mobile_db()
         if not effective_db:
-            await query.edit_message_text("⚠️ دیتابیس موبایل خالی است. لطفا از پنل مدیریت فایل اکسل آپلود کنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")]]))
+            await query.edit_message_text("⚠️ دیتابیس موبایل خالی است. لطفا از پنل مدیریت فایل اکسل آپلود کنید یا آپلود AI را بزنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")]]))
             return
         for brand in effective_db.keys(): keyboard.append([InlineKeyboardButton(brand, callback_data=f"mob_brand_{brand}")])
         keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_mobile_list")])
@@ -695,9 +695,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data.startswith("mob_model_"):
-        parts = data.split("_")
-        brand_name = parts[2]
-        model_name = parts[3]
+        rest = data.replace("mob_model_", "")
+        parts = rest.split("_", 1)
+        brand_name = parts[0]
+        model_name = parts[1] if len(parts) > 1 else ""
         
         found_model = None
         effective_db = get_effective_mobile_db()
@@ -718,23 +719,64 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"💾 حافظه: {found_model.get('storage', '-')}\n"
                         f"-------------------\n"
                         f"💰 **قیمت:** {p_str}")
+                keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"mob_brand_{brand_name}")]]
+                await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
             else:
-                text = f"📱 **قیمت‌های {found_model['name']}**\n\n"
-                for v in variants:
-                    m_p = v.get('marketPrice', 0)
-                    o_p = v.get('officialPrice', 0)
-                    
-                    try: m_str = f"{int(float(str(m_p).replace(',', ''))):,} تومان"
-                    except: m_str = str(m_p)
-                    
-                    try: o_str = f"{int(float(str(o_p).replace(',', ''))):,} تومان"
-                    except: o_str = str(o_p)
+                keyboard = []
+                for idx, variant in enumerate(variants):
+                    keyboard.append([InlineKeyboardButton(variant["name"], callback_data=f"mob_variant_{brand_name}_{model_name}_{idx}")])
+                keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"mob_brand_{brand_name}")])
+                await query.edit_message_text(f"مدل {model_name}:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
 
-                    text += f"🔹 **{v['name']}**\n"
-                    if o_p > 0: text += f"   🛡 گارانتی: {o_str}\n"
-                    text += f"   🏪 بازار: {m_str}\n\n"
+    if data.startswith("mob_variant_"):
+        rest = data.replace("mob_variant_", "")
+        # format: brand_model_idx
+        # since model can have underscores, we split from the right
+        parts = rest.rsplit("_", 1)
+        idx = int(parts[1])
+        brand_model = parts[0]
+        bm_parts = brand_model.split("_", 1)
+        brand_name = bm_parts[0]
+        model_name = bm_parts[1] if len(bm_parts) > 1 else ""
+        
+        found_variant = None
+        effective_db = get_effective_mobile_db()
+        if brand_name in effective_db:
+            for m in effective_db[brand_name]["models"]:
+                if m["name"] == model_name and idx < len(m.get("variants", [])):
+                    found_variant = m["variants"][idx]
+                    break
+        
+        if found_variant:
+            m_p = found_variant.get('marketPrice', 0)
+            o_p = found_variant.get('officialPrice', 0)
             
-            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"mob_brand_{brand_name}")]]
+            try:
+                m_val = int(float(str(m_p).replace(',', '')))
+                m_str = f"{m_val:,} تومان"
+            except:
+                m_val = 0
+                m_str = str(m_p)
+            
+            try:
+                o_val = int(float(str(o_p).replace(',', '')))
+                o_str = f"{o_val:,} تومان"
+            except:
+                o_val = 0
+                o_str = str(o_p)
+
+            text = (f"📊 **استعلام قیمت موبایل**\n\n"
+                    f"📱 {model_name} ({found_variant['name']})\n"
+                    f"-------------------\n"
+                    f"📉 **قیمت بازار:**\n"
+                    f"💰 {m_str}\n\n")
+            
+            if o_val > 0 or (isinstance(o_p, str) and o_p.strip() != ""):
+                text += (f"🛡 **گارانتی:**\n"
+                         f"🏦 {o_str}")
+            
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"mob_model_{brand_name}_{model_name}")]]
             await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
@@ -935,11 +977,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = get_state(user_id)["data"]
         brand, model, year, mileage = user_data.get("brand"), user_data.get("model"), user_data.get("year"), user_data.get("mileage")
         
-        zero_price = 800
+        zero_price = 800000000 # Default fallback 800M
         effective_db = get_effective_car_db()
         for b in effective_db.values():
-            for m in b["models"]:
-                if m["name"] == model: zero_price = m["variants"][0]["marketPrice"]; break
+            for m in b.get("models", []):
+                if m["name"] == model:
+                    try:
+                        p_val = m["variants"][0]["marketPrice"]
+                        zero_price = int(float(str(p_val).replace(',', '')))
+                    except:
+                        pass
+                    break
         
         age = 1404 - year
         age_drop = 0.05 if age == 1 else (0.05 + ((age - 1) * 0.035) if age > 1 else 0)
@@ -950,9 +998,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mileage_drop = max(min(mileage_drop, 0.15), -0.05)
             
         total_drop = age_drop + mileage_drop + condition["drop"]
-        final_price = round((zero_price * (1 - total_drop)) / 5) * 5
+        final_price = round((zero_price * (1 - total_drop)) / 1000000) * 1000000
         
-        result = (f"🎯 **کارشناسی قیمت**\\n🚙 **{brand} {model}**\\n-----------------\\n📅 سال: {year} | 🛣 کارکرد: {mileage:,}\\n🎨 بدنه: {condition['label']}\\n-----------------\\n💰 **قیمت تقریبی: {final_price:,} میلیون تومان**")
+        today = jdatetime.date.today().strftime('%Y/%m/%d')
+        result = (f"🎯 **کارشناسی قیمت**\n"
+                  f"📅 تاریخ: {today}\n"
+                  f"🚙 **{brand} {model}**\n"
+                  f"-----------------\n"
+                  f"📅 سال: {year} | 🛣 کارکرد: {mileage:,}\n"
+                  f"🎨 بدنه: {condition['label']}\n"
+                  f"-----------------\n"
+                  f"💰 **قیمت تقریبی:** {final_price:,} تومان")
+        
         keyboard = [[InlineKeyboardButton("🏠 منوی اصلی", callback_data="main_menu")]]
         await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         reset_state(user_id)
@@ -977,28 +1034,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Reference URLs for grounding
                 car_url = "https://www.iranjib.ir/showgroup/45/%D9%82%DB%8C%D9%85%D8%AA-%D8%AE%D9%88%D8%AF%D8%B1%D9%88-%D8%AA%D9%88%D9%84%DB%8C%D8%AF-%D8%AF%D8%A7%D8%AE%D9%84/"
-                mob_url = "https://www.iranjib.ir/showgroup/28/%D9%82%DB%8C%D9%85%D8%AA-%D8%B1%D9%88%D8%B2-%D9%85%D9%88%D8%A8%D8%A7%DB%8C%D9%84/"
+                mob_url_1 = "https://www.iranjib.ir/showgroup/28/%D9%82%DB%8C%D9%85%D8%AA-%D8%B1%D9%88%D8%B2-%D9%85%D9%88%D8%A8%D8%A7%DB%8C%D9%84/"
+                mob_url_2 = "https://torob.com/browse/94/%DA%AF%D9%88%D8%B4%DB%8C-%D9%85%D9%88%D8%A8%D8%A7%DB%8C%D9%84-mobile/?stock_status=new"
+                mob_url_3 = "https://www.mobile.ir/phones/prices.aspx?terms=&brandid=&provinceid=&duration=1&price_from=-1&price_to=-1&shopid=&pagesize=50&sort=date&dir=desc&submit=%D8%AC%D8%B3%D8%AA%D8%AC%D9%88"
 
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-                try:
-                    car_html = requests.get(car_url, headers=headers, timeout=10).text
-                    import re
-                    car_html = re.sub(r'<script.*?</script>', '', car_html, flags=re.DOTALL|re.IGNORECASE)
-                    car_html = re.sub(r'<style.*?</style>', '', car_html, flags=re.DOTALL|re.IGNORECASE)
-                    car_html = re.sub(r'<[^>]+>', ' ', car_html)
-                    car_html = re.sub(r'\s+', ' ', car_html).strip()
-                except:
-                    car_html = "خطا در دریافت اطلاعات از سایت"
                 
-                try:
-                    mob_html = requests.get(mob_url, headers=headers, timeout=10).text
-                    import re
-                    mob_html = re.sub(r'<script.*?</script>', '', mob_html, flags=re.DOTALL|re.IGNORECASE)
-                    mob_html = re.sub(r'<style.*?</style>', '', mob_html, flags=re.DOTALL|re.IGNORECASE)
-                    mob_html = re.sub(r'<[^>]+>', ' ', mob_html)
-                    mob_html = re.sub(r'\s+', ' ', mob_html).strip()
-                except:
-                    mob_html = "خطا در دریافت اطلاعات از سایت"
+                def fetch_and_clean(url):
+                    try:
+                        html = requests.get(url, headers=headers, timeout=10).text
+                        import re
+                        html = re.sub(r'<script.*?</script>', '', html, flags=re.DOTALL|re.IGNORECASE)
+                        html = re.sub(r'<style.*?</style>', '', html, flags=re.DOTALL|re.IGNORECASE)
+                        html = re.sub(r'<[^>]+>', ' ', html)
+                        return re.sub(r'\s+', ' ', html).strip()
+                    except:
+                        return "خطا در دریافت اطلاعات از سایت"
+
+                car_html = fetch_and_clean(car_url)
+                mob_html_1 = fetch_and_clean(mob_url_1)
+                mob_html_2 = fetch_and_clean(mob_url_2)
+                mob_html_3 = fetch_and_clean(mob_url_3)
 
                 # Fetching structured JSON for Cars
                 car_prompt = (
@@ -1030,8 +1086,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Fetching structured JSON for Mobiles
                 mob_prompt = (
                     f"امروز {today} است. وظیفه شما استخراج دقیق‌ترین و بروزترین قیمت گوشی‌های موبایل در ایران است. "
-                    f"در ادامه محتوای متنی سایت ایران جیب (منبع معتبر قیمت موبایل) آورده شده است. "
-                    f"لطفا قیمت‌ها را دقیقا از این متن استخراج کنید:\n\n{mob_html[:25000]}\n\n"
+                    f"در ادامه محتوای متنی از ۳ سایت معتبر (ایران جیب، ترب، موبایل دات آی آر) آورده شده است:\n\n"
+                    f"منبع ۱:\n{mob_html_1[:10000]}\n\n"
+                    f"منبع ۲:\n{mob_html_2[:10000]}\n\n"
+                    f"منبع ۳:\n{mob_html_3[:10000]}\n\n"
+                    "لطفا قیمت‌ها را از این سه منبع تحلیل کنید و برای هر مدل گوشی، فقط یک قیمت نهایی (میانگین یا معتبرترین قیمت) ارائه دهید. "
+                    "به هیچ وجه نام سایت‌ها را در خروجی نیاورید و برای هر مدل فقط یک قیمت ثبت کنید. "
                     "قیمت رسمی (با گارانتی) و قیمت بازار را تفکیک کنید. "
                     "خروجی فقط و فقط به صورت یک JSON معتبر با ساختار زیر باشد:\n"
                     "{\n"
