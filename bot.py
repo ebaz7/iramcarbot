@@ -282,6 +282,7 @@ async def fix_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطا: {e}")
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global CAR_DB, MOBILE_DB
     query = update.callback_query
     user_id = query.from_user.id
     data = query.data
@@ -819,12 +820,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 new_mobs = parse_json(mob_resp.text)
 
                 if new_cars:
-                    global CAR_DB
                     CAR_DB.update(new_cars)
                     save_car_db()
                 
                 if new_mobs:
-                    global MOBILE_DB
                     MOBILE_DB.update(new_mobs)
                     try:
                         with open('mobile_db.json', 'w', encoding='utf-8') as f:
