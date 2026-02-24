@@ -78,7 +78,7 @@ function setup_environment() {
     
     source venv/bin/activate
     pip install --upgrade pip
-    pip install python-telegram-bot pandas openpyxl jdatetime google-generativeai
+    pip install "python-telegram-bot[job-queue]" pandas openpyxl jdatetime google-generativeai requests
 }
 
 function configure_bot() {
