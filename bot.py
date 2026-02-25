@@ -484,6 +484,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "admin_menus":
         d = load_data()
         c = d.get("menu_config", DEFAULT_CONFIG)
+        
+        # Ensure all default keys exist (merge new buttons)
+        changed = False
+        for k, v in DEFAULT_CONFIG.items():
+            if k not in c:
+                c[k] = v
+                changed = True
+            else:
+                # Ensure nested keys like 'url' exist if they are in default
+                if "url" in v and "url" not in c[k]:
+                    c[k]["url"] = v["url"]
+                    changed = True
+        
+        if changed:
+            d["menu_config"] = c
+            save_data(d)
+
         keyboard = []
         for key, val in c.items():
             status = "✅" if val["active"] else "❌"

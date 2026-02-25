@@ -177,28 +177,105 @@ function create_shortcut() {
 
 # --- Backup/Restore ---
 
-function do_backup() {
-    BACKUP_DIR="$HOME/carbot_backups"
-    mkdir -p "$BACKUP_DIR"
-    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-    DEST="$BACKUP_DIR/backup_$TIMESTAMP.json"
+function setup_auto_backup() {
+    echo -e "${BLUE}⏰ Configure Auto-Backup${NC}"
     
-    if [ -f "$INSTALL_DIR/bot_data.json" ]; then
-        cp "$INSTALL_DIR/bot_data.json" "$DEST"
-        echo -e "${GREEN}✅ Backup saved to: $DEST${NC}"
-        
-        # Telegram Send
-        read -p "Send to Telegram? (y/n): " snd
-        if [[ "$snd" == "y" ]]; then
-            TOKEN=$(grep "TOKEN =" "$INSTALL_DIR/bot.py" | cut -d "'" -f 2)
-            ID=$(grep "OWNER_ID =" "$INSTALL_DIR/bot.py" | awk -F'=' '{print $2}' | tr -d ' ')
-            curl -s -F chat_id="$ID" -F document=@"$DEST" -F caption="💾 Manual Backup" "https://api.telegram.org/bot$TOKEN/sendDocument" > /dev/null
-            echo "Sent."
-        fi
-    else
-        echo -e "${RED}No database found.${NC}"
+    # Check if cron is installed
+    if ! command -v crontab &> /dev/null; then
+        echo -e "${YELLOW}Installing cron...${NC}"
+        sudo apt-get install -y cron
+        sudo systemctl enable cron
+        sudo systemctl start cron
     fi
+
+    read -p "Enter backup interval in hours (e.g., 1, 6, 12, 24): " INTERVAL
+    if [[ ! "$INTERVAL" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Invalid input. Please enter a number.${NC}"
+        pause
+        return
+    fi
+
+    # Extract Token and Admin ID
+    TOKEN=$(grep "TOKEN =" "$INSTALL_DIR/bot.py" | cut -d "'" -f 2)
+    ADMIN_ID=$(grep "OWNER_ID =" "$INSTALL_DIR/bot.py" | awk -F'=' '{print $2}' | tr -d ' ')
+
+    if [ -z "$TOKEN" ] || [ -z "$ADMIN_ID" ]; then
+        echo -e "${RED}❌ Could not find Bot Token or Admin ID in bot.py. Please configure the bot first.${NC}"
+        pause
+        return
+    fi
+
+    # Create Backup Script
+    BACKUP_SCRIPT="$INSTALL_DIR/auto_backup.sh"
+    cat > "$BACKUP_SCRIPT" <<EOL
+#!/bin/bash
+cd "$INSTALL_DIR"
+TIMESTAMP=\$(date +"%Y%m%d_%H%M%S")
+BACKUP_FILE="backup_\$TIMESTAMP.json"
+
+if [ -f "bot_data.json" ]; then
+    cp "bot_data.json" "\$BACKUP_FILE"
+    
+    # Send to Telegram
+    curl -s -F chat_id="$ADMIN_ID" -F document=@"\$BACKUP_FILE" -F caption="💾 Auto Backup (Every $INTERVAL hours)" "https://api.telegram.org/bot$TOKEN/sendDocument" > /dev/null
+    
+    # Cleanup
+    rm "\$BACKUP_FILE"
+fi
+EOL
+
+    chmod +x "$BACKUP_SCRIPT"
+
+    # Add to Crontab
+    # Remove existing job for this script to avoid duplicates
+    (crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT") | crontab -
+
+    # Add new job
+    # 0 */INTERVAL * * *
+    (crontab -l 2>/dev/null; echo "0 */$INTERVAL * * * $BACKUP_SCRIPT") | crontab -
+
+    echo -e "${GREEN}✅ Auto-Backup configured to run every $INTERVAL hours.${NC}"
     pause
+}
+
+function do_backup() {
+    echo -e "${BLUE}💾 Backup Menu${NC}"
+    echo "1) Run Manual Backup Now"
+    echo "2) Configure Auto-Backup (Cron Job)"
+    echo "0) Back"
+    read -p "Select: " b_choice
+
+    case $b_choice in
+        1)
+            BACKUP_DIR="$HOME/carbot_backups"
+            mkdir -p "$BACKUP_DIR"
+            TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+            DEST="$BACKUP_DIR/backup_$TIMESTAMP.json"
+            
+            if [ -f "$INSTALL_DIR/bot_data.json" ]; then
+                cp "$INSTALL_DIR/bot_data.json" "$DEST"
+                echo -e "${GREEN}✅ Backup saved to: $DEST${NC}"
+                
+                # Telegram Send
+                read -p "Send to Telegram? (y/n): " snd
+                if [[ "$snd" == "y" ]]; then
+                    TOKEN=$(grep "TOKEN =" "$INSTALL_DIR/bot.py" | cut -d "'" -f 2)
+                    ID=$(grep "OWNER_ID =" "$INSTALL_DIR/bot.py" | awk -F'=' '{print $2}' | tr -d ' ')
+                    curl -s -F chat_id="$ID" -F document=@"$DEST" -F caption="💾 Manual Backup" "https://api.telegram.org/bot$TOKEN/sendDocument" > /dev/null
+                    echo "Sent."
+                fi
+            else
+                echo -e "${RED}No database found.${NC}"
+            fi
+            pause
+            ;;
+        2)
+            setup_auto_backup
+            ;;
+        *)
+            return
+            ;;
+    esac
 }
 
 function do_restore() {
