@@ -12,6 +12,7 @@ export interface AppSettings {
   deepseekApiKey: string;
   openaiApiKey: string;
   telegramToken: string;
+  baleToken: string;
   excelData: any[] | null;
   aiData: any[] | null;
 }
@@ -25,6 +26,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
   telegramToken: process.env.TELEGRAM_TOKEN || '',
+  baleToken: process.env.BALE_TOKEN || '',
   excelData: null,
   aiData: null,
 };

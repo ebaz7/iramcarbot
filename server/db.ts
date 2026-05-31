@@ -15,6 +15,7 @@ export interface Config {
   priority: 'AI' | 'Excel';
   geminiApiKey: string;
   telegramToken: string;
+  baleToken: string;
   adminIds: number[];
   channelUrl: string;
   sponsor: { name: string; url: string };
@@ -38,6 +39,7 @@ const DEFAULT_DB: DB = {
     priority: 'AI',
     geminiApiKey: process.env.GEMINI_API_KEY || '',
     telegramToken: process.env.TELEGRAM_TOKEN || '',
+    baleToken: process.env.BALE_TOKEN || '',
     adminIds: [],
     channelUrl: 'https://t.me/CarPrice_Channel',
     sponsor: { name: '', url: '' },

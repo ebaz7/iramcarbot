@@ -10,6 +10,7 @@ interface AppSettings {
   deepseekApiKey: string;
   openaiApiKey: string;
   telegramToken: string;
+  baleToken: string;
 }
 
 interface PriceItem {
@@ -293,16 +294,30 @@ function App() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-2">توکن ربات تلگرام</label>
-                <input
-                  type="password"
-                  value={settings.telegramToken}
-                  onChange={(e) => setSettings({ ...settings, telegramToken: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                  placeholder="123456:ABC-..."
-                  dir="ltr"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">توکن ربات تلگرام</label>
+                  <input
+                    type="password"
+                    value={settings.telegramToken}
+                    onChange={(e) => setSettings({ ...settings, telegramToken: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="123456:ABC-..."
+                    dir="ltr"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">توکن ربات بله (Bale)</label>
+                  <input
+                    type="password"
+                    value={settings.baleToken || ''}
+                    onChange={(e) => setSettings({ ...settings, baleToken: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="123456:bale-..."
+                    dir="ltr"
+                  />
+                </div>
               </div>
 
               <div className="pt-4 border-t border-slate-700 flex justify-end">

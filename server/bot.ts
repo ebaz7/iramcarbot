@@ -1,28 +1,14 @@
 import { Telegraf, Context } from 'telegraf';
 import { loadSettings } from './settings';
-import { generatePriceList } from './ai';
 
-let bot: Telegraf<Context> | null = null;
+let tgBot: Telegraf<Context> | null = null;
+let baleBot: Telegraf<Context> | null = null;
 
-export function startBot() {
-  const settings = loadSettings();
-  const token = settings.telegramToken || process.env.TELEGRAM_TOKEN;
+function registerHandlers(botInstance: Telegraf<Context>) {
+  botInstance.start((ctx) => ctx.reply('Welcome to the Price Bot! Use /price to get the latest prices.'));
+  botInstance.help((ctx) => ctx.reply('Send /price to see the list.'));
 
-  if (!token) {
-    console.warn('Telegram Bot Token is missing. Bot will not start.');
-    return;
-  }
-
-  if (bot) {
-    bot.stop('Restarting');
-  }
-
-  bot = new Telegraf(token);
-
-  bot.start((ctx) => ctx.reply('Welcome to the Price Bot! Use /price to get the latest prices.'));
-  bot.help((ctx) => ctx.reply('Send /price to see the list.'));
-
-  bot.command('price', async (ctx) => {
+  botInstance.command('price', async (ctx) => {
     const currentSettings = loadSettings();
     let prices = [];
 
@@ -52,22 +38,73 @@ export function startBot() {
       await ctx.reply(message || 'No prices found.');
     }
   });
+}
 
-  bot.launch().then(() => {
-    console.log('Telegram Bot started successfully.');
-  }).catch((err) => {
-    console.error('Failed to start Telegram Bot:', err);
-  });
+export function startBot() {
+  const settings = loadSettings();
+  const tgToken = settings.telegramToken || process.env.TELEGRAM_TOKEN;
+  const baleToken = settings.baleToken || process.env.BALE_TOKEN;
+
+  if (!tgToken && !baleToken) {
+    console.warn('Neither Telegram nor Bale Bot Tokens are configured. Bot will not start.');
+    return;
+  }
+
+  // 1. Stop existing Telegram Bot
+  if (tgBot) {
+    tgBot.stop('Restarting');
+    tgBot = null;
+  }
+  // 2. Stop existing Bale Bot
+  if (baleBot) {
+    baleBot.stop('Restarting');
+    baleBot = null;
+  }
+
+  // 3. Start Telegram Bot
+  if (tgToken) {
+    tgBot = new Telegraf(tgToken);
+    registerHandlers(tgBot);
+    tgBot.launch().then(() => {
+      console.log('Telegram Bot started successfully.');
+    }).catch((err) => {
+      console.error('Failed to start Telegram Bot:', err);
+    });
+  }
+
+  // 4. Start Bale Bot
+  if (baleToken) {
+    baleBot = new Telegraf(baleToken, {
+      telegram: { apiRoot: 'https://tapi.bale.ai' }
+    });
+    registerHandlers(baleBot);
+    baleBot.launch().then(() => {
+      console.log('Bale Bot started successfully.');
+    }).catch((err) => {
+      console.error('Failed to start Bale Bot:', err);
+    });
+  }
 
   // Enable graceful stop
-  process.once('SIGINT', () => bot?.stop('SIGINT'));
-  process.once('SIGTERM', () => bot?.stop('SIGTERM'));
+  process.once('SIGINT', () => {
+    tgBot?.stop('SIGINT');
+    baleBot?.stop('SIGINT');
+  });
+  process.once('SIGTERM', () => {
+    tgBot?.stop('SIGTERM');
+    baleBot?.stop('SIGTERM');
+  });
 }
 
 export function stopBot() {
-  if (bot) {
-    bot.stop();
-    bot = null;
+  if (tgBot) {
+    tgBot.stop();
+    tgBot = null;
     console.log('Telegram Bot stopped.');
+  }
+  if (baleBot) {
+    baleBot.stop();
+    baleBot = null;
+    console.log('Bale Bot stopped.');
   }
 }

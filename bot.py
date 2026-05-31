@@ -14,6 +14,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Callb
 
 # Configuration
 TOKEN = 'REPLACE_ME_TOKEN' 
+BALE_TOKEN = 'REPLACE_ME_BALE_TOKEN'
 OWNER_ID = 0
 GEMINI_API_KEY = ''
 DEEPSEEK_API_KEY = ''
@@ -78,6 +79,8 @@ STATE_SEARCH = "SEARCH"
 # --- Data Management ---
 def load_data():
     default_data = {
+        "telegram_token": "",
+        "bale_token": "",
         "backup_interval": 0, 
         "users": [], 
         "admins": [], 
@@ -1424,16 +1427,75 @@ async def post_init(application):
     except Exception as e:
         logger.error(f"Error setting commands: {e}")
 
+import asyncio
+
+async def async_main():
+    data = load_data()
+    tg_token = data.get("telegram_token") or os.environ.get("TELEGRAM_TOKEN") or TOKEN
+    bale_token_val = data.get("bale_token") or os.environ.get("BALE_TOKEN") or BALE_TOKEN
+
+    apps = []
+
+    # 1. Telegram
+    if tg_token and tg_token != 'REPLACE_ME_TOKEN' and tg_token.strip() != '':
+        tg_app = ApplicationBuilder().token(tg_token).post_init(post_init).build()
+        tg_app.add_handler(CommandHandler("start", start))
+        tg_app.add_handler(CommandHandler("fixmenu", fix_menu))
+        tg_app.add_handler(CallbackQueryHandler(handle_callback))
+        tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        tg_app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+        apps.append((tg_app, "Telegram Bot"))
+
+    # 2. Bale
+    if bale_token_val and bale_token_val != 'REPLACE_ME_BALE_TOKEN' and bale_token_val.strip() != '':
+        bale_app = ApplicationBuilder().token(bale_token_val).base_url("https://tapi.bale.ai/bot").post_init(post_init).build()
+        bale_app.add_handler(CommandHandler("start", start))
+        bale_app.add_handler(CommandHandler("fixmenu", fix_menu))
+        bale_app.add_handler(CallbackQueryHandler(handle_callback))
+        bale_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        bale_app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+        apps.append((bale_app, "Bale Bot"))
+
+    if not apps:
+        print("⚠️ No bot token is configured (Telegram or Bale). Please configure at least one token.")
+        # Fallback to default TOKEN
+        fallback_token = TOKEN if TOKEN != 'REPLACE_ME_TOKEN' else "DUMMY_TOKEN"
+        tg_app = ApplicationBuilder().token(fallback_token).post_init(post_init).build()
+        tg_app.add_handler(CommandHandler("start", start))
+        tg_app.add_handler(CommandHandler("fixmenu", fix_menu))
+        tg_app.add_handler(CallbackQueryHandler(handle_callback))
+        tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        tg_app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+        apps.append((tg_app, "Telegram Bot (Fallback)"))
+
+    # Start all
+    for app, name in apps:
+        try:
+            await app.initialize()
+            await app.start()
+            await app.updater.start_polling()
+            print(f"✅ {name} started successfully and is polling.")
+        except Exception as e:
+            logger.error(f"Failed to start {name}: {e}")
+
+    # Keep alive
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+        print("Stopping bots...")
+        for app, name in apps:
+            try:
+                await app.updater.stop()
+                await app.stop()
+                await app.shutdown()
+                print(f"🛑 {name} stopped.")
+            except Exception as e:
+                logger.error(f"Error stopping {name}: {e}")
+
 if __name__ == '__main__':
     load_car_db()
     load_mobile_db()
-    if TOKEN == 'REPLACE_ME_TOKEN': print("⚠️ Configure token in bot.py")
-    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("fixmenu", fix_menu))
-    app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-
-    print("Bot is running...")
-    app.run_polling()
+    
+    print("Bot loader is running...")
+    asyncio.run(async_main())
