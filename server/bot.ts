@@ -52,12 +52,20 @@ export function startBot() {
 
   // 1. Stop existing Telegram Bot
   if (tgBot) {
-    tgBot.stop('Restarting');
+    try {
+      tgBot.stop('Restarting');
+    } catch (err) {
+      console.warn('Telegram Bot was not running or failed to stop:', err);
+    }
     tgBot = null;
   }
   // 2. Stop existing Bale Bot
   if (baleBot) {
-    baleBot.stop('Restarting');
+    try {
+      baleBot.stop('Restarting');
+    } catch (err) {
+      console.warn('Bale Bot was not running or failed to stop:', err);
+    }
     baleBot = null;
   }
 
@@ -87,23 +95,27 @@ export function startBot() {
 
   // Enable graceful stop
   process.once('SIGINT', () => {
-    tgBot?.stop('SIGINT');
-    baleBot?.stop('SIGINT');
+    try { tgBot?.stop('SIGINT'); } catch (e) {}
+    try { baleBot?.stop('SIGINT'); } catch (e) {}
   });
   process.once('SIGTERM', () => {
-    tgBot?.stop('SIGTERM');
-    baleBot?.stop('SIGTERM');
+    try { tgBot?.stop('SIGTERM'); } catch (e) {}
+    try { baleBot?.stop('SIGTERM'); } catch (e) {}
   });
 }
 
 export function stopBot() {
   if (tgBot) {
-    tgBot.stop();
+    try {
+      tgBot.stop();
+    } catch (e) {}
     tgBot = null;
     console.log('Telegram Bot stopped.');
   }
   if (baleBot) {
-    baleBot.stop();
+    try {
+      baleBot.stop();
+    } catch (e) {}
     baleBot = null;
     console.log('Bale Bot stopped.');
   }
