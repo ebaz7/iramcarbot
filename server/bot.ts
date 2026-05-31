@@ -171,38 +171,21 @@ const PAINT_CONDITIONS = [
 const YEARS = [1404, 1403, 1402, 1401, 1400, 1399, 1398, 1397, 1396, 1395, 1394, 1393, 1392, 1391, 1390];
 
 // --- Admin Helper ---
-function isBotAdminPlatform(userId: string | number, platform: 'telegram' | 'bale'): boolean {
+function isBotAdmin(userId: string | number): boolean {
   const settings = loadSettings();
   const uidStr = String(userId);
-  if (platform === 'telegram') {
-    const ownerId = settings.tgOwnerId || settings.ownerId;
-    const admins = settings.tgAdmins || settings.admins || [];
-    if (ownerId && String(ownerId) === uidStr) {
-      return true;
-    }
-    if (admins && admins.map(String).includes(uidStr)) {
-      return true;
-    }
-    // Setup first caller auto-register for ease of use
-    if (!ownerId && !settings.ownerId) {
-      updateSettings({ tgOwnerId: uidStr, ownerId: uidStr });
-      return true;
-    }
-  } else {
-    // Bale
-    const ownerId = settings.baleOwnerId;
-    const admins = settings.baleAdmins || [];
-    if (ownerId && String(ownerId) === uidStr) {
-      return true;
-    }
-    if (admins && admins.map(String).includes(uidStr)) {
-      return true;
-    }
-    // Setup first caller auto-register for ease of use
-    if (!ownerId) {
-      updateSettings({ baleOwnerId: uidStr });
-      return true;
-    }
+  const ownerId = settings.ownerId;
+  const admins = settings.admins || [];
+  if (ownerId && String(ownerId) === uidStr) {
+    return true;
+  }
+  if (admins && admins.map(String).includes(uidStr)) {
+    return true;
+  }
+  // Setup first caller auto-register for ease of use
+  if (!ownerId && !settings.ownerId) {
+    updateSettings({ ownerId: uidStr });
+    return true;
   }
   return false;
 }
@@ -264,7 +247,7 @@ function getMainMenuMarkupPlatform(userId: string | number, platform: 'telegram'
   if (row4.length > 0) keyboard.push(row4);
 
   // 👑 Admin Panel Button if user is admin
-  if (isBotAdminPlatform(userId, platform)) {
+  if (isBotAdmin(userId)) {
     keyboard.push([Markup.button.callback("👑 پنل مدیریت", "admin_home")]);
   }
 
@@ -274,12 +257,8 @@ function getMainMenuMarkupPlatform(userId: string | number, platform: 'telegram'
     footer.push(Markup.button.url(c.channel.label, c.channel.url));
   }
 
-  const sponsorName = platform === 'telegram'
-    ? (settings.tgSponsorName || settings.sponsorName)
-    : (settings.baleSponsorName || '');
-  const sponsorUrl = platform === 'telegram'
-    ? (settings.tgSponsorUrl || settings.sponsorUrl)
-    : (settings.baleSponsorUrl || '');
+  const sponsorName = settings.sponsorName;
+  const sponsorUrl = settings.sponsorUrl;
 
   if (sponsorName && sponsorUrl) {
     footer.push(Markup.button.url(`⭐ ${sponsorName}`, sponsorUrl));
@@ -297,7 +276,7 @@ function getAdminHomeMarkupPlatform(platform: 'telegram' | 'bale') {
     [Markup.button.callback("📞 تنظیم پشتیبانی", "admin_set_support")],
     [Markup.button.callback("👥 ادمین‌ها", "admin_manage_admins")],
     [Markup.button.callback("💾 بکاپ دیتابیس", "admin_backup_menu")],
-    [Markup.button.callback(`⭐ تنظیم اسپانسر (${platform === 'telegram' ? 'تلگرام' : 'بله'})`, "admin_set_sponsor")],
+    [Markup.button.callback("⭐ تنظیم اسپانسر", "admin_set_sponsor")],
     [Markup.button.callback("📣 ارسال پیام همگانی", "admin_broadcast")],
     [Markup.button.callback("🔙 خروج", "main_menu")]
   ]);
@@ -381,7 +360,6 @@ function formatPrice(p: any): string {
 
 // Register Handlers
 function registerHandlers(botInstance: Telegraf<Context>, platform: 'telegram' | 'bale') {
-  const isBotAdmin = (userId: string | number) => isBotAdminPlatform(userId, platform);
   const getMainMenuMarkup = (userId: string | number) => getMainMenuMarkupPlatform(userId, platform);
   const getAdminHomeMarkup = () => getAdminHomeMarkupPlatform(platform);
 
@@ -646,17 +624,10 @@ function registerHandlers(botInstance: Telegraf<Context>, platform: 'telegram' |
     const userId = ctx.from?.id;
     if (userId && isBotAdmin(userId)) {
       const settings = loadSettings();
-      let ownerId = '';
-      let admins: string[] = [];
-      if (platform === 'telegram') {
-        ownerId = settings.tgOwnerId || settings.ownerId || '';
-        admins = settings.tgAdmins || settings.admins || [];
-      } else {
-        ownerId = settings.baleOwnerId || '';
-        admins = settings.baleAdmins || [];
-      }
+      const ownerId = settings.ownerId || '';
+      const admins = settings.admins || [];
 
-      let msg = `👥 **لیست مدیران ارشد سیستم (${platform === 'telegram' ? 'تلگرام' : 'بله'}):**\n\n👑 مالک اصلی: \`${ownerId || 'تنظیم نشده'}\`\n`;
+      let msg = `👥 **لیست مدیران ارشد سیستم:**\n\n👑 مالک اصلی: \`${ownerId || 'تنظیم نشده'}\`\n`;
       if (admins && admins.length > 0) {
         msg += "👨‍💻 مدیران فرعی ثبت شده:\n" + admins.map((id, index) => `${index + 1}. \`${id}\``).join('\n');
       } else {
@@ -823,24 +794,13 @@ function registerHandlers(botInstance: Telegraf<Context>, platform: 'telegram' |
       case 'ADM_ADD_ADMIN': {
         const adminIdInput = text.trim();
         const settings = loadSettings();
-        if (platform === 'telegram') {
-          const currentAdmins = settings.tgAdmins || settings.admins || [];
-          if (!currentAdmins.includes(adminIdInput)) {
-            currentAdmins.push(adminIdInput);
-            updateSettings({ tgAdmins: currentAdmins, admins: currentAdmins });
-            await ctx.reply(`✅ مدیر فرعی تلگرام با شناسه ${adminIdInput} به سیستم اضافه شد.`);
-          } else {
-            await ctx.reply(`⚠️ این شناسه از قبل در لیست مدیران تلگرام موجود بود.`);
-          }
+        const currentAdmins = settings.admins || [];
+        if (!currentAdmins.includes(adminIdInput)) {
+          currentAdmins.push(adminIdInput);
+          updateSettings({ admins: currentAdmins });
+          await ctx.reply(`✅ مدیر فرعی با شناسه ${adminIdInput} به سیستم اضافه شد.`);
         } else {
-          const currentAdmins = settings.baleAdmins || [];
-          if (!currentAdmins.includes(adminIdInput)) {
-            currentAdmins.push(adminIdInput);
-            updateSettings({ baleAdmins: currentAdmins });
-            await ctx.reply(`✅ مدیر فرعی بله با شناسه ${adminIdInput} به سیستم اضافه شد.`);
-          } else {
-            await ctx.reply(`⚠️ این شناسه از قبل در لیست مدیران بله موجود بود.`);
-          }
+          await ctx.reply(`⚠️ این شناسه از قبل در لیست مدیران سیستم موجود بود.`);
         }
         resetState(userId);
         return;
@@ -858,12 +818,8 @@ function registerHandlers(botInstance: Telegraf<Context>, platform: 'telegram' |
         if (!text.startsWith("http")) {
           return ctx.reply("⚠️ آدرس نامعتبر است. حتما با http شروع شود.");
         }
-        if (platform === 'telegram') {
-          updateSettings({ tgSponsorName: sName, tgSponsorUrl: text, sponsorName: sName, sponsorUrl: text });
-        } else {
-          updateSettings({ baleSponsorName: sName, baleSponsorUrl: text });
-        }
-        await ctx.reply(`✅ اسپانسر با موفقیت در منوی شروع فعال شد.`);
+        updateSettings({ sponsorName: sName, sponsorUrl: text });
+        await ctx.reply(`✅ اسپانسر با موفقیت فعال شد.`);
         resetState(userId);
         return;
       }
