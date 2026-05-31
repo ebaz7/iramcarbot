@@ -12,6 +12,15 @@ interface AppSettings {
   openaiApiKey: string;
   telegramToken: string;
   baleToken: string;
+  ownerId?: string;
+  admins?: string[];
+  users?: string[];
+  sponsorName?: string;
+  sponsorUrl?: string;
+  supportMode?: 'link' | 'text';
+  supportValue?: string;
+  backupInterval?: number;
+  menuConfig?: Record<string, { label: string; url?: string; active: boolean; type: string }>;
 }
 
 interface PriceItem {
@@ -325,6 +334,72 @@ function App() {
                     placeholder="123456:bale-..."
                     dir="ltr"
                   />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-700 space-y-6">
+                <h3 className="text-lg font-bold text-emerald-400">تنظیمات پیشرفته اسپانسر و برندینگ ربات</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">شناسه تلگرام مالک (Owner Telegram ID)</label>
+                    <input
+                      type="text"
+                      value={settings.ownerId || ''}
+                      onChange={(e) => setSettings({ ...settings, ownerId: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                      placeholder="974842185..."
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">عنوان دکمه اسپانسر (Sponsor Name)</label>
+                    <input
+                      type="text"
+                      value={settings.sponsorName || ''}
+                      onChange={(e) => setSettings({ ...settings, sponsorName: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                      placeholder="کانال حامی ما"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">لینک دکمه اسپانسر (Sponsor URL)</label>
+                    <input
+                      type="text"
+                      value={settings.sponsorUrl || ''}
+                      onChange={(e) => setSettings({ ...settings, sponsorUrl: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                      placeholder="https://t.me/..."
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">نوع دکمه پشتیبانی</label>
+                    <select
+                      value={settings.supportMode || 'text'}
+                      onChange={(e) => setSettings({ ...settings, supportMode: e.target.value as 'link' | 'text' })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    >
+                      <option value="text">نمایش متن پیام پشتیبانی inside ربات</option>
+                      <option value="link">باز شدن مستقیم لینک آیدی/کانال</option>
+                    </select>
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-slate-400 mb-2">مقدار پشتیبانی (لینک مستقیم یا متن پاسخ)</label>
+                    <textarea
+                      value={settings.supportValue || ''}
+                      onChange={(e) => setSettings({ ...settings, supportValue: e.target.value })}
+                      rows={2}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                      placeholder="https://t.me/your_admin یا توضیحات شماره تماس..."
+                    />
+                  </div>
                 </div>
               </div>
 

@@ -15,6 +15,17 @@ export interface AppSettings {
   baleToken: string;
   excelData: any[] | null;
   aiData: any[] | null;
+
+  // New admin and dynamic bot parameters for high-fidelity restore
+  ownerId: string;
+  admins: string[];
+  users: string[];
+  sponsorName: string;
+  sponsorUrl: string;
+  supportMode: 'link' | 'text';
+  supportValue: string;
+  backupInterval: number; // in hours
+  menuConfig?: Record<string, { label: string; url?: string; active: boolean; type: string }>;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -29,6 +40,26 @@ const DEFAULT_SETTINGS: AppSettings = {
   baleToken: process.env.BALE_TOKEN || '',
   excelData: null,
   aiData: null,
+
+  ownerId: '',
+  admins: [],
+  users: [],
+  sponsorName: '',
+  sponsorUrl: '',
+  supportMode: 'text',
+  supportValue: '📞 پشتیبانی ربات\n\nبرای هرگونه سوال، نظر یا گزارش مشکلات با آیدی مدیر در ارتباط باشید:\n📢 @CarPrice_Channel',
+  backupInterval: 24,
+  menuConfig: {
+    calc: { label: "🧮 ماشین‌حساب", url: "https://www.hamrah-mechanic.com/carprice/", active: true, type: "webapp" },
+    market: { label: "🌐 قیمت بازار", url: "https://www.iranjib.ir/showgroup/45/", active: true, type: "webapp" },
+    prices: { label: "📋 لیست قیمت", active: true, type: "internal" },
+    estimate: { label: "💰 تخمین قیمت", active: true, type: "internal" },
+    mobile_webapp: { label: "📱 قیمت موبایل (سایت)", url: "https://www.mobile.ir/phones/prices.aspx", active: true, type: "webapp" },
+    mobile_list: { label: "📲 لیست موبایل (ربات)", active: true, type: "internal" },
+    search: { label: "🔍 جستجو", active: true, type: "internal" },
+    channel: { label: "📢 کانال ما", url: "https://t.me/CarPrice_Channel", active: true, type: "link" },
+    support: { label: "📞 پشتیبانی", active: true, type: "dynamic" }
+  }
 };
 
 export function loadSettings(): AppSettings {
