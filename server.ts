@@ -11,7 +11,7 @@ import { parseExcelFile } from './server/excel';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -85,7 +85,7 @@ if (process.env.NODE_ENV !== 'production') {
   // Production (Static Files)
   const distPath = path.join(process.cwd(), 'dist');
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
+  app.get('*all', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 
