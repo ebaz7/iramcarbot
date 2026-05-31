@@ -17,9 +17,18 @@ interface AppSettings {
   users?: string[];
   sponsorName?: string;
   sponsorUrl?: string;
+  tgOwnerId?: string;
+  tgAdmins?: string[];
+  tgSponsorName?: string;
+  tgSponsorUrl?: string;
+  baleOwnerId?: string;
+  baleAdmins?: string[];
+  baleSponsorName?: string;
+  baleSponsorUrl?: string;
   supportMode?: 'link' | 'text';
   supportValue?: string;
   backupInterval?: number;
+  telegramProxy?: string;
   menuConfig?: Record<string, { label: string; url?: string; active: boolean; type: string }>;
 }
 
@@ -311,7 +320,7 @@ function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">توکن ربات تلگرام</label>
                   <input
@@ -335,45 +344,131 @@ function App() {
                     dir="ltr"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">پروکسی تلگرام (HTTP / SOCKS5)</label>
+                  <input
+                    type="text"
+                    value={settings.telegramProxy || ''}
+                    onChange={(e) => setSettings({ ...settings, telegramProxy: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="مثال: socks5://127.0.0.1:1080"
+                    dir="ltr"
+                  />
+                </div>
               </div>
 
               <div className="pt-4 border-t border-slate-700 space-y-6">
-                <h3 className="text-lg font-bold text-emerald-400">تنظیمات پیشرفته اسپانسر و برندینگ ربات</h3>
+                <h3 className="text-lg font-bold text-emerald-400">تنظیمات پیشرفته اسپانسر و مدیریت ربات‌ها</h3>
                 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">شناسه تلگرام مالک (Owner Telegram ID)</label>
-                    <input
-                      type="text"
-                      value={settings.ownerId || ''}
-                      onChange={(e) => setSettings({ ...settings, ownerId: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                      placeholder="974842185..."
-                      dir="ltr"
-                    />
+                {/* Telegram Bot Specific Area */}
+                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 space-y-4">
+                  <h4 className="text-md font-bold text-sky-400 flex items-center gap-2">
+                    <span>🔵 تنظیمات اختصاصی ربات تلگرام (Telegram)</span>
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">شناسه عددی تلگرام مالک (Telegram Owner ID)</label>
+                      <input
+                        type="text"
+                        value={settings.tgOwnerId || settings.ownerId || ''}
+                        onChange={(e) => setSettings({ ...settings, tgOwnerId: e.target.value, ownerId: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-sky-500 outline-none"
+                        placeholder="مثال: 974842185"
+                        dir="ltr"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">شناسه‌های ادمین‌های کمکی (با کاما جدا کنید)</label>
+                      <input
+                        type="text"
+                        value={settings.tgAdmins ? settings.tgAdmins.join(', ') : (settings.admins ? settings.admins.join(', ') : '')}
+                        onChange={(e) => {
+                          const list = e.target.value.split(',').map(x => x.trim()).filter(Boolean);
+                          setSettings({ ...settings, tgAdmins: list, admins: list });
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-sky-500 outline-none"
+                        placeholder="974842185, 12345678"
+                        dir="ltr"
+                      />
+                    </div>
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">عنوان دکمه اسپانسر (Sponsor Name)</label>
-                    <input
-                      type="text"
-                      value={settings.sponsorName || ''}
-                      onChange={(e) => setSettings({ ...settings, sponsorName: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                      placeholder="کانال حامی ما"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">عنوان دکمه اسپانسر تلگرام (Telegram Sponsor Name)</label>
+                      <input
+                        type="text"
+                        value={settings.tgSponsorName || settings.sponsorName || ''}
+                        onChange={(e) => setSettings({ ...settings, tgSponsorName: e.target.value, sponsorName: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-sky-500 outline-none"
+                        placeholder="کانال حامی تلگرام"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">لینک دکمه اسپانسر تلگرام (Telegram Sponsor URL)</label>
+                      <input
+                        type="text"
+                        value={settings.tgSponsorUrl || settings.sponsorUrl || ''}
+                        onChange={(e) => setSettings({ ...settings, tgSponsorUrl: e.target.value, sponsorUrl: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-sky-500 outline-none"
+                        placeholder="https://t.me/..."
+                        dir="ltr"
+                      />
+                    </div>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">لینک دکمه اسپانسر (Sponsor URL)</label>
-                    <input
-                      type="text"
-                      value={settings.sponsorUrl || ''}
-                      onChange={(e) => setSettings({ ...settings, sponsorUrl: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                      placeholder="https://t.me/..."
-                      dir="ltr"
-                    />
+                {/* Bale Bot Specific Area */}
+                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 space-y-4">
+                  <h4 className="text-md font-bold text-amber-500 flex items-center gap-2">
+                    <span>🟢 تنظیمات اختصاصی ربات بله (Bale)</span>
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">شناسه عددی بله مالک (Bale Owner ID)</label>
+                      <input
+                        type="text"
+                        value={settings.baleOwnerId || ''}
+                        onChange={(e) => setSettings({ ...settings, baleOwnerId: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-amber-500 outline-none"
+                        placeholder="مثال: 98765432"
+                        dir="ltr"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">شناسه‌های ادمین‌های کمکی بله (با کاما جدا کنید)</label>
+                      <input
+                        type="text"
+                        value={settings.baleAdmins ? settings.baleAdmins.join(', ') : ''}
+                        onChange={(e) => setSettings({ ...settings, baleAdmins: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-amber-500 outline-none"
+                        placeholder="98765432, 87654321"
+                        dir="ltr"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">عنوان دکمه اسپانسر بله (Bale Sponsor Name)</label>
+                      <input
+                        type="text"
+                        value={settings.baleSponsorName || ''}
+                        onChange={(e) => setSettings({ ...settings, baleSponsorName: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-amber-500 outline-none"
+                        placeholder="کانال حامی بله"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">لینک دکمه اسپانسر بله (Bale Sponsor URL)</label>
+                      <input
+                        type="text"
+                        value={settings.baleSponsorUrl || ''}
+                        onChange={(e) => setSettings({ ...settings, baleSponsorUrl: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-amber-500 outline-none"
+                        placeholder="https://ble.ir/..."
+                        dir="ltr"
+                      />
+                    </div>
                   </div>
                 </div>
 

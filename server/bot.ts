@@ -1,5 +1,7 @@
 import { Telegraf, Context, Markup } from 'telegraf';
 import { loadSettings, updateSettings, AppSettings } from './settings';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 import fs from 'fs';
 import path from 'path';
 import xlsx from 'xlsx';
@@ -169,19 +171,38 @@ const PAINT_CONDITIONS = [
 const YEARS = [1404, 1403, 1402, 1401, 1400, 1399, 1398, 1397, 1396, 1395, 1394, 1393, 1392, 1391, 1390];
 
 // --- Admin Helper ---
-function isBotAdmin(userId: string | number): boolean {
+function isBotAdminPlatform(userId: string | number, platform: 'telegram' | 'bale'): boolean {
   const settings = loadSettings();
   const uidStr = String(userId);
-  if (settings.ownerId && String(settings.ownerId) === uidStr) {
-    return true;
-  }
-  if (settings.admins && settings.admins.map(String).includes(uidStr)) {
-    return true;
-  }
-  // Setup first caller auto-register for ease of use
-  if (!settings.ownerId) {
-    updateSettings({ ownerId: uidStr });
-    return true;
+  if (platform === 'telegram') {
+    const ownerId = settings.tgOwnerId || settings.ownerId;
+    const admins = settings.tgAdmins || settings.admins || [];
+    if (ownerId && String(ownerId) === uidStr) {
+      return true;
+    }
+    if (admins && admins.map(String).includes(uidStr)) {
+      return true;
+    }
+    // Setup first caller auto-register for ease of use
+    if (!ownerId && !settings.ownerId) {
+      updateSettings({ tgOwnerId: uidStr, ownerId: uidStr });
+      return true;
+    }
+  } else {
+    // Bale
+    const ownerId = settings.baleOwnerId;
+    const admins = settings.baleAdmins || [];
+    if (ownerId && String(ownerId) === uidStr) {
+      return true;
+    }
+    if (admins && admins.map(String).includes(uidStr)) {
+      return true;
+    }
+    // Setup first caller auto-register for ease of use
+    if (!ownerId) {
+      updateSettings({ baleOwnerId: uidStr });
+      return true;
+    }
   }
   return false;
 }
@@ -196,7 +217,7 @@ function registerUser(userId: string | number) {
   }
 }
 
-function getMainMenuMarkup(userId: string | number) {
+function getMainMenuMarkupPlatform(userId: string | number, platform: 'telegram' | 'bale') {
   const settings = loadSettings();
   const c = settings.menuConfig || {
     calc: { label: "🧮 ماشین‌حساب", url: "https://www.hamrah-mechanic.com/carprice/", active: true, type: "webapp" },
@@ -243,7 +264,7 @@ function getMainMenuMarkup(userId: string | number) {
   if (row4.length > 0) keyboard.push(row4);
 
   // 👑 Admin Panel Button if user is admin
-  if (isBotAdmin(userId)) {
+  if (isBotAdminPlatform(userId, platform)) {
     keyboard.push([Markup.button.callback("👑 پنل مدیریت", "admin_home")]);
   }
 
@@ -252,15 +273,23 @@ function getMainMenuMarkup(userId: string | number) {
   if (c.channel?.active && c.channel.url) {
     footer.push(Markup.button.url(c.channel.label, c.channel.url));
   }
-  if (settings.sponsorName && settings.sponsorUrl) {
-    footer.push(Markup.button.url(`⭐ ${settings.sponsorName}`, settings.sponsorUrl));
+
+  const sponsorName = platform === 'telegram'
+    ? (settings.tgSponsorName || settings.sponsorName)
+    : (settings.baleSponsorName || '');
+  const sponsorUrl = platform === 'telegram'
+    ? (settings.tgSponsorUrl || settings.sponsorUrl)
+    : (settings.baleSponsorUrl || '');
+
+  if (sponsorName && sponsorUrl) {
+    footer.push(Markup.button.url(`⭐ ${sponsorName}`, sponsorUrl));
   }
   if (footer.length > 0) keyboard.push(footer);
 
   return Markup.inlineKeyboard(keyboard);
 }
 
-function getAdminHomeMarkup() {
+function getAdminHomeMarkupPlatform(platform: 'telegram' | 'bale') {
   return Markup.inlineKeyboard([
     [Markup.button.callback("⚙️ مدیریت منو", "admin_menus")],
     [Markup.button.callback("✨ مرکز کنترل AI", "admin_ai_control")],
@@ -268,7 +297,7 @@ function getAdminHomeMarkup() {
     [Markup.button.callback("📞 تنظیم پشتیبانی", "admin_set_support")],
     [Markup.button.callback("👥 ادمین‌ها", "admin_manage_admins")],
     [Markup.button.callback("💾 بکاپ دیتابیس", "admin_backup_menu")],
-    [Markup.button.callback("⭐ تنظیم اسپانسر", "admin_set_sponsor")],
+    [Markup.button.callback(`⭐ تنظیم اسپانسر (${platform === 'telegram' ? 'تلگرام' : 'بله'})`, "admin_set_sponsor")],
     [Markup.button.callback("📣 ارسال پیام همگانی", "admin_broadcast")],
     [Markup.button.callback("🔙 خروج", "main_menu")]
   ]);
@@ -351,7 +380,11 @@ function formatPrice(p: any): string {
 }
 
 // Register Handlers
-function registerHandlers(botInstance: Telegraf<Context>) {
+function registerHandlers(botInstance: Telegraf<Context>, platform: 'telegram' | 'bale') {
+  const isBotAdmin = (userId: string | number) => isBotAdminPlatform(userId, platform);
+  const getMainMenuMarkup = (userId: string | number) => getMainMenuMarkupPlatform(userId, platform);
+  const getAdminHomeMarkup = () => getAdminHomeMarkupPlatform(platform);
+
   botInstance.start((ctx) => {
     const userId = ctx.from?.id;
     if (userId) {
@@ -613,9 +646,19 @@ function registerHandlers(botInstance: Telegraf<Context>) {
     const userId = ctx.from?.id;
     if (userId && isBotAdmin(userId)) {
       const settings = loadSettings();
-      let msg = `👥 **لیست مدیران ارشد سیستم:**\n\n👑 مالک اصلی: \`${settings.ownerId || 'تنظیم نشده'}\`\n`;
-      if (settings.admins && settings.admins.length > 0) {
-        msg += "👨‍💻 مدیران فرعی ثبت شده:\n" + settings.admins.map((id, index) => `${index + 1}. \`${id}\``).join('\n');
+      let ownerId = '';
+      let admins: string[] = [];
+      if (platform === 'telegram') {
+        ownerId = settings.tgOwnerId || settings.ownerId || '';
+        admins = settings.tgAdmins || settings.admins || [];
+      } else {
+        ownerId = settings.baleOwnerId || '';
+        admins = settings.baleAdmins || [];
+      }
+
+      let msg = `👥 **لیست مدیران ارشد سیستم (${platform === 'telegram' ? 'تلگرام' : 'بله'}):**\n\n👑 مالک اصلی: \`${ownerId || 'تنظیم نشده'}\`\n`;
+      if (admins && admins.length > 0) {
+        msg += "👨‍💻 مدیران فرعی ثبت شده:\n" + admins.map((id, index) => `${index + 1}. \`${id}\``).join('\n');
       } else {
         msg += "⚠️ مدیر فرعی اضافه نشده است.";
       }
@@ -780,13 +823,24 @@ function registerHandlers(botInstance: Telegraf<Context>) {
       case 'ADM_ADD_ADMIN': {
         const adminIdInput = text.trim();
         const settings = loadSettings();
-        const currentAdmins = settings.admins || [];
-        if (!currentAdmins.includes(adminIdInput)) {
-          currentAdmins.push(adminIdInput);
-          updateSettings({ admins: currentAdmins });
-          await ctx.reply(`✅ مدیر فرعی با شناسه ${adminIdInput} به سیستم اضافه شد.`);
+        if (platform === 'telegram') {
+          const currentAdmins = settings.tgAdmins || settings.admins || [];
+          if (!currentAdmins.includes(adminIdInput)) {
+            currentAdmins.push(adminIdInput);
+            updateSettings({ tgAdmins: currentAdmins, admins: currentAdmins });
+            await ctx.reply(`✅ مدیر فرعی تلگرام با شناسه ${adminIdInput} به سیستم اضافه شد.`);
+          } else {
+            await ctx.reply(`⚠️ این شناسه از قبل در لیست مدیران تلگرام موجود بود.`);
+          }
         } else {
-          await ctx.reply(`⚠️ این شناسه از قبل در لیست مدیران موجود بود.`);
+          const currentAdmins = settings.baleAdmins || [];
+          if (!currentAdmins.includes(adminIdInput)) {
+            currentAdmins.push(adminIdInput);
+            updateSettings({ baleAdmins: currentAdmins });
+            await ctx.reply(`✅ مدیر فرعی بله با شناسه ${adminIdInput} به سیستم اضافه شد.`);
+          } else {
+            await ctx.reply(`⚠️ این شناسه از قبل در لیست مدیران بله موجود بود.`);
+          }
         }
         resetState(userId);
         return;
@@ -804,7 +858,11 @@ function registerHandlers(botInstance: Telegraf<Context>) {
         if (!text.startsWith("http")) {
           return ctx.reply("⚠️ آدرس نامعتبر است. حتما با http شروع شود.");
         }
-        updateSettings({ sponsorName: sName, sponsorUrl: text });
+        if (platform === 'telegram') {
+          updateSettings({ tgSponsorName: sName, tgSponsorUrl: text, sponsorName: sName, sponsorUrl: text });
+        } else {
+          updateSettings({ baleSponsorName: sName, baleSponsorUrl: text });
+        }
         await ctx.reply(`✅ اسپانسر با موفقیت در منوی شروع فعال شد.`);
         resetState(userId);
         return;
@@ -1347,8 +1405,31 @@ export function startBot() {
 
   // 3. Start Telegram Bot
   if (tgToken) {
-    tgBot = new Telegraf(tgToken);
-    registerHandlers(tgBot);
+    const proxyUrl = settings.telegramProxy;
+    let telegrafOptions: any = {};
+    if (proxyUrl) {
+      console.log(`Setting up Telegram bot proxy: ${proxyUrl}`);
+      try {
+        if (proxyUrl.startsWith('socks')) {
+          telegrafOptions = {
+            telegram: {
+              agent: new SocksProxyAgent(proxyUrl)
+            }
+          };
+        } else {
+          telegrafOptions = {
+            telegram: {
+              agent: new HttpsProxyAgent(proxyUrl)
+            }
+          };
+        }
+      } catch (err) {
+        console.error('Error creating proxy agent for Telegram:', err);
+      }
+    }
+
+    tgBot = new Telegraf(tgToken, telegrafOptions);
+    registerHandlers(tgBot, 'telegram');
     tgBot.launch().then(() => {
       console.log('Telegram Bot started successfully.');
     }).catch((err) => {
@@ -1361,7 +1442,7 @@ export function startBot() {
     baleBot = new Telegraf(baleToken, {
       telegram: { apiRoot: 'https://tapi.bale.ai' }
     });
-    registerHandlers(baleBot);
+    registerHandlers(baleBot, 'bale');
     baleBot.launch().then(() => {
       console.log('Bale Bot started successfully.');
     }).catch((err) => {

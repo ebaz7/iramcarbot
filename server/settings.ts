@@ -22,9 +22,22 @@ export interface AppSettings {
   users: string[];
   sponsorName: string;
   sponsorUrl: string;
+
+  // Platform-specific configurations
+  tgOwnerId?: string;
+  tgAdmins?: string[];
+  tgSponsorName?: string;
+  tgSponsorUrl?: string;
+
+  baleOwnerId?: string;
+  baleAdmins?: string[];
+  baleSponsorName?: string;
+  baleSponsorUrl?: string;
+
   supportMode: 'link' | 'text';
   supportValue: string;
   backupInterval: number; // in hours
+  telegramProxy?: string;
   menuConfig?: Record<string, { label: string; url?: string; active: boolean; type: string }>;
 }
 
@@ -38,6 +51,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   openaiApiKey: process.env.OPENAI_API_KEY || '',
   telegramToken: process.env.TELEGRAM_TOKEN || '',
   baleToken: process.env.BALE_TOKEN || '',
+  telegramProxy: '',
   excelData: null,
   aiData: null,
 
@@ -46,6 +60,17 @@ const DEFAULT_SETTINGS: AppSettings = {
   users: [],
   sponsorName: '',
   sponsorUrl: '',
+
+  tgOwnerId: '',
+  tgAdmins: [],
+  tgSponsorName: '',
+  tgSponsorUrl: '',
+
+  baleOwnerId: '',
+  baleAdmins: [],
+  baleSponsorName: '',
+  baleSponsorUrl: '',
+
   supportMode: 'text',
   supportValue: '📞 پشتیبانی ربات\n\nبرای هرگونه سوال، نظر یا گزارش مشکلات با آیدی مدیر در ارتباط باشید:\n📢 @CarPrice_Channel',
   backupInterval: 24,
