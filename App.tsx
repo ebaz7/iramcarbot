@@ -10,6 +10,7 @@ interface AppSettings {
   deepseekApiKey: string;
   openaiApiKey: string;
   telegramToken: string;
+  telegramProxyUrl: string;
   baleToken: string;
   telegramAdminId: string;
   baleAdminId: string;
@@ -296,7 +297,7 @@ function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">توکن ربات تلگرام</label>
                   <input
@@ -316,6 +317,20 @@ function App() {
                     onChange={(e) => setSettings({ ...settings, baleToken: e.target.value })}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                     placeholder="123456:ABC-..."
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">Telegram Proxy URL (اختیاری)</label>
+                  <input
+                    type="text"
+                    value={settings.telegramProxyUrl || ''}
+                    onChange={(e) => setSettings({ ...settings, telegramProxyUrl: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="http://127.0.0.1:10809"
                     dir="ltr"
                   />
                 </div>

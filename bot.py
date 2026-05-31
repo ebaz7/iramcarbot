@@ -22,6 +22,7 @@ except Exception:
     settings_data = {}
 
 TOKEN = settings_data.get('telegramToken', 'REPLACE_ME_TOKEN')
+PROXY_URL = settings_data.get('telegramProxyUrl', '')
 GEMINI_API_KEY = settings_data.get('geminiApiKey', '')
 
 try:
@@ -1443,7 +1444,11 @@ if __name__ == '__main__':
         import time
         print("Please configure token in web interface. Waiting...")
         while True: time.sleep(3600)
-    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    builder = ApplicationBuilder().token(TOKEN)
+    if PROXY_URL:
+        print(f"Using proxy: {PROXY_URL}")
+        builder = builder.proxy_url(PROXY_URL).get_updates_proxy_url(PROXY_URL)
+    app = builder.post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("fixmenu", fix_menu))
     app.add_handler(CallbackQueryHandler(handle_callback))

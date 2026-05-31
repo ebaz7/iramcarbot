@@ -12,6 +12,7 @@ export interface AppSettings {
   deepseekApiKey: string;
   openaiApiKey: string;
   telegramToken: string;
+  telegramProxyUrl: string;
   baleToken: string;
   telegramAdminId: string;
   baleAdminId: string;
@@ -28,6 +29,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
   telegramToken: process.env.TELEGRAM_TOKEN || '',
+  telegramProxyUrl: '',
   baleToken: process.env.BALE_TOKEN || '',
   telegramAdminId: '',
   baleAdminId: '',
