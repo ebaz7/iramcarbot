@@ -24,11 +24,11 @@ async function fetchAndClean(url: string): Promise<string> {
     
     // Normalize spaces
     const cleanText = html.replace(/\s+/g, ' ').trim();
-    // Return a safe slice to fit model context/token windows nicely
+    // Return a safe slice
     return cleanText.slice(0, 30000);
   } catch (err: any) {
     console.error(`Error fetching URL (${url}):`, err.message);
-    return "خطا در دریافت اطلاعات از سایت";
+    return "";
   }
 }
 
@@ -45,67 +45,35 @@ function saveJsonDb(filename: string, data: any) {
 
 export async function generatePriceList() {
   const settings = loadSettings();
-  const source = settings.aiSource || 'GEMINI';
   const today = new Date().toLocaleDateString('fa-IR');
 
-  // Scraping the required website for car prices (Iran jib)
   const carUrl = "https://www.iranjib.ir/showgroup/45/%D9%82%DB%8C%D9%85%D8%AA-%D8%AE%D9%88%D8%AF%D8%B1%D9%88-%D8%AA%D9%88%D9%84%DB%8C%D8%AF-%D8%AF%D8%A7%D8%AE%D9%84/";
   const carHtml = await fetchAndClean(carUrl);
 
   const carPrompt = `
-    امروز تاریخ ${today} است. وظیفه شما استخراج دقیق‌ترین و بروزترین قیمت خودروهای صفر در ایران است.
-    در ادامه محتوای متنی استخراج شده از سایت ایران جیب (منبع معتبر قیمت خودرو) آورده شده است. لطفا قیمت‌ها را دقیقا از این متن استخراج کنید:
-
+    امروز تاریخ ${today} است. وظیفه شما استخراج دقیق‌ترین قیمت خودروهای صفر در ایران است.
+    محتوای سایت استخراج شده:
     ${carHtml}
 
-    قیمت‌ها باید دقیق‌ترین و منطبق با متن بالا باشند. در صورت ذکر نشدن قیمت کارخانه برای برخی خودروها، فیلد مربوطه را صفر یا بر اساس محاسبات حدودی قرار دهید.
-    خروجی باید صرفاً و لزوماً یک آرایه JSON معتبر طبق ساختار زیر (با فیلدهای انگلیسی و کلیدها دقیقاً به انگلیسی) باشد:
+    خروجی باید یک آرایه JSON معتبر طبق ساختار زیر باشد:
     [
-      { "brand": "ایران خودرو", "model": "پژو 207 هیدرولیک", "year": 1403, "price": 780000000, "currency": "Toman" }
+      { "brand": "ایران خودرو", "model": "پژو 207", "year": 1403, "price": 780000000, "currency": "Toman" }
     ]
-
-    نکات مهم:
-    1. مقدار فیلد brand باید یکی از تولیدکنندگان معروف ایرانی مانند "ایران خودرو"، "سایپا"، "بهمن موتور"، "مدیران خودرو"، "کرمان موتور"، "پارس خودرو" یا موارد مشابه باشد.
-    2. مقدار فیلد model باید شامل مدل و تیپ مربوطه باشد.
-    3. مقدار قیمت ها (price) باید دقیقاً به تومان و به صورت عدد باشد. (اگر در متن به میلیون تومان بود، مثلا 780 میلیون، آن را تبدیل به 780000000 کنید).
-    4. هیچ گونه متن اضافه یا فرمت مارک داون (Markdown) به همراه خروجی ارسال نکنید. فقط و فقط آرایه JSON خام را برگردانید.
+    فقط JSON را برگردانید و فرمت Markdown اضافه نکنید.
   `;
 
   let jsonString = '[]';
-
-  // Requesting completion
-  if (source === 'GEMINI') {
-    const apiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('Gemini API Key is missing.');
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: carPrompt,
-      config: { responseMimeType: 'application/json' },
-    });
-    jsonString = response.text || '[]';
-  } else if (source === 'DEEPSEEK') {
-    const apiKey = settings.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) throw new Error('DeepSeek API Key is missing.');
-    const response = await axios.post('https://api.deepseek.com/chat/completions', {
-      model: 'deepseek-chat',
-      messages: [{ role: 'user', content: carPrompt + " (Return ONLY raw JSON array)" }],
-      stream: false
-    }, {
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    });
-    jsonString = response.data.choices[0].message.content;
-  } else if (source === 'OPENAI') {
-    const apiKey = settings.openaiApiKey || process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('OpenAI API Key is missing.');
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: 'gpt-3.5-turbo',
-      messages: [{ role: 'user', content: carPrompt + " (Return ONLY raw JSON array)" }]
-    }, {
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    });
-    jsonString = response.data.choices[0].message.content;
-  }
+  const apiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('Gemini API Key is missing.');
+  
+  const ai = new GoogleGenAI({ apiKey });
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-flash',
+    contents: carPrompt,
+    config: { responseMimeType: 'application/json' },
+  });
+  
+  jsonString = response.text || '[]';
 
   let finalCarArray: any[] = [];
   try {
@@ -116,101 +84,7 @@ export async function generatePriceList() {
     throw new Error('Invalid JSON response from AI while fetching car prices.');
   }
 
-  // --- Background Scrape of Mobiles (Parallel Workflow to sync both databases) ---
-  try {
-    const mobUrl1 = "https://www.iranjib.ir/showgroup/28/%D9%82%DB%8C%D9%85%D8%AA-%D8%B1%D9%88%D8%B2-%D9%85%D9%88%D8%A8%D8%A7%DB%8C%D9%84/";
-    const mobUrl3 = "https://www.mobile.ir/phones/prices.aspx?terms=&brandid=&provinceid=&duration=1&price_from=-1&price_to=-1&shopid=&pagesize=50&sort=date&dir=desc&submit=%D8%AC%D8%B3%D8%AA%D8%AC%D9%88";
-    
-    console.log("Scraping mobile prices from sources...");
-    const mobHtml1 = await fetchAndClean(mobUrl1);
-    const mobHtml3 = await fetchAndClean(mobUrl3);
-
-    const mobPrompt = `
-      امروز تاریخ ${today} است. وظیفه شما استخراج دقیق‌ترین و بروزترین قیمت گوشی‌های موبایل در ایران است.
-      در ادامه محتوای متنی از منابع معتبر براتس آورده شده است:
-
-      منبع ۱ (ایران جیب):
-      ${mobHtml1.slice(0, 15000)}
-
-      منبع ۲ (مرجع موبایل):
-      ${mobHtml3.slice(0, 15000)}
-
-      لطفاً برندها و مدل‌های معروف (مانند Apple, Samsung, Xiaomi) را به صورت درخت گرافیکی JSON سازماندهی کرده و با ساختار نمونه زیر تدارک ببینید:
-      {
-        "Apple": {
-          "models": [
-            {
-              "name": "iPhone 15 Pro Max",
-              "variants": [
-                { "name": "256GB RAM 8", "officialPrice": 75000000, "marketPrice": 87000000 }
-              ]
-            }
-          ]
-        },
-        "Samsung": {
-          "models": [
-            {
-              "name": "Galaxy S24 Ultra",
-              "variants": [
-                { "name": "256GB RAM 12", "officialPrice": 68000000, "marketPrice": 70500000 }
-              ]
-            }
-          ]
-        }
-      }
-
-      نکته مهم:
-      - قیمت ها باید به تومان و به صورت عدد باشند.
-      - هیچ متنی اضافه تر از JSON ارسال نشود. فقط و فقط قالب JSON بالا را برگشت دهید.
-    `;
-
-    let mobJsonString = '{}';
-    if (source === 'GEMINI') {
-      const apiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY;
-      if (apiKey) {
-        const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: mobPrompt,
-          config: { responseMimeType: 'application/json' },
-        });
-        mobJsonString = response.text || '{}';
-      }
-    } else if (source === 'DEEPSEEK') {
-      const apiKey = settings.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
-      if (apiKey) {
-        const response = await axios.post('https://api.deepseek.com/chat/completions', {
-          model: 'deepseek-chat',
-          messages: [{ role: 'user', content: mobPrompt + " (Return ONLY raw JSON)" }],
-          stream: false
-        }, {
-          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-        });
-        mobJsonString = response.data.choices[0].message.content;
-      }
-    } else if (source === 'OPENAI') {
-      const apiKey = settings.openaiApiKey || process.env.OPENAI_API_KEY;
-      if (apiKey) {
-        const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-          model: 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: mobPrompt + " (Return ONLY raw JSON)" }]
-        }, {
-          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-        });
-        mobJsonString = response.data.choices[0].message.content;
-      }
-    }
-
-    const cleanedMobJson = mobJsonString.replace(/```json/g, '').replace(/```/g, '').trim();
-    const finalMobTree = JSON.parse(cleanedMobJson);
-    if (finalMobTree && Object.keys(finalMobTree).length > 0) {
-      saveJsonDb('mobile_db_ai.json', finalMobTree);
-    }
-  } catch (mobErr: any) {
-    console.error('Failed to background update mobile prices:', mobErr.message);
-  }
-
-  // Save the custom structured car DB file too so we maintain high compatibility and offline functionality
+  // Format and save locally
   try {
     const formattedTree: Record<string, any> = {};
     finalCarArray.forEach((p: any) => {
@@ -234,3 +108,4 @@ export async function generatePriceList() {
 
   return finalCarArray;
 }
+
