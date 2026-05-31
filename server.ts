@@ -11,7 +11,7 @@ import { parseExcelFile } from './server/excel';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -85,20 +85,8 @@ if (process.env.NODE_ENV !== 'production') {
   // Production (Static Files)
   const distPath = path.join(process.cwd(), 'dist');
   app.use(express.static(distPath));
-  app.get('*all', (req, res) => {
-    const indexPath = path.join(distPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      res.status(500).send(`
-        <div style="font-family: sans-serif; padding: 40px; text-align: center; background: #0f172a; color: #f8fafc; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-          <h1 style="color: #ef4444; margin-bottom: 20px;">⚠️ پوشه خروجی (Build) یافت نشد!</h1>
-          <p style="font-size: 18px; margin-bottom: 10px; direction: rtl;">ابتدا باید پروژه را با دستور زیر بیلد کنید تا فایل‌های فرانت‌اند ساخته شوند:</p>
-          <code style="background: #1e293b; padding: 10px 20px; border-radius: 8px; font-size: 16px; color: #10b981; margin: 15px 0;">npm run build</code>
-          <p style="font-size: 14px; color: #94a3b8; direction: rtl; margin-top: 20px;">پس از اجرای دستور فوق، مجدداً سرور را با دستور <code>npm start</code> اجرا کنید.</p>
-        </div>
-      `);
-    }
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
   });
 
   app.listen(PORT, '0.0.0.0', () => {

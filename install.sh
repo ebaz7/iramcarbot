@@ -90,14 +90,12 @@ function configure_bot() {
     # 1. Telegram Token
     if grep -q "REPLACE_ME_TOKEN" bot.py; then
         read -p "Enter Telegram Bot Token: " BOT_TOKEN
-        read -p "Enter Bale Bot Token (Optional, press enter to skip): " BALE_TOKEN
         read -p "Enter Admin Numeric ID: " ADMIN_ID
         read -p "Enter Gemini API Key (Optional, for AI prices): " GEMINI_KEY
         read -p "Enter DeepSeek API Key (Optional, for AI prices): " DEEPSEEK_KEY
         read -p "Enter OpenAI API Key (Optional, for AI prices): " OPENAI_KEY
         
         sed -i "s|REPLACE_ME_TOKEN|$BOT_TOKEN|g" bot.py
-        sed -i "s|REPLACE_ME_BALE_TOKEN|$BALE_TOKEN|g" bot.py
         sed -i "s|OWNER_ID = 0|OWNER_ID = $ADMIN_ID|g" bot.py
         sed -i "s|GEMINI_API_KEY = ''|GEMINI_API_KEY = '$GEMINI_KEY'|g" bot.py
         sed -i "s|DEEPSEEK_API_KEY = ''|DEEPSEEK_API_KEY = '$DEEPSEEK_KEY'|g" bot.py

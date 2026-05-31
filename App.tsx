@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Upload, RefreshCw, Database, Bot, Clock, ShieldCheck, AlertCircle } from 'lucide-react';
-import TelegramMock from './components/TelegramMock';
 
 interface AppSettings {
   priority: 'AI' | 'EXCEL';
@@ -12,24 +11,8 @@ interface AppSettings {
   openaiApiKey: string;
   telegramToken: string;
   baleToken: string;
-  ownerId?: string;
-  admins?: string[];
-  users?: string[];
-  sponsorName?: string;
-  sponsorUrl?: string;
-  tgOwnerId?: string;
-  tgAdmins?: string[];
-  tgSponsorName?: string;
-  tgSponsorUrl?: string;
-  baleOwnerId?: string;
-  baleAdmins?: string[];
-  baleSponsorName?: string;
-  baleSponsorUrl?: string;
-  supportMode?: 'link' | 'text';
-  supportValue?: string;
-  backupInterval?: number;
-  telegramProxy?: string;
-  menuConfig?: Record<string, { label: string; url?: string; active: boolean; type: string }>;
+  telegramAdminId: string;
+  baleAdminId: string;
 }
 
 interface PriceItem {
@@ -41,7 +24,7 @@ interface PriceItem {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'upload' | 'simulator'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'upload'>('dashboard');
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [prices, setPrices] = useState<PriceItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -158,13 +141,6 @@ function App() {
             داشبورد
           </button>
           <button
-            onClick={() => setActiveTab('simulator')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'simulator' ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-slate-700/50 text-slate-400'}`}
-          >
-            <Bot className="w-5 h-5" />
-            شبیه‌ساز ربات
-          </button>
-          <button
             onClick={() => setActiveTab('settings')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'settings' ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-slate-700/50 text-slate-400'}`}
           >
@@ -245,7 +221,7 @@ function App() {
             <h2 className="text-2xl font-bold text-white mb-6">تنظیمات ربات</h2>
             <form onSubmit={handleUpdateSettings} className="space-y-6 bg-slate-800 p-6 rounded-xl border border-slate-700">
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">اولویت داده‌ها</label>
                   <select
@@ -259,7 +235,20 @@ function App() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">فاصله زمانی آپدیت هوشمند (ساعت)</label>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">منبع هوش مصنوعی</label>
+                  <select
+                    value={settings.aiSource}
+                    onChange={(e) => setSettings({ ...settings, aiSource: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option value="GEMINI">Gemini (Google)</option>
+                    <option value="DEEPSEEK">DeepSeek</option>
+                    <option value="OPENAI">ChatGPT (OpenAI)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">فاصله زمانی آپدیت (ساعت)</label>
                   <input
                     type="number"
                     value={settings.updateInterval}
@@ -283,6 +272,32 @@ function App() {
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">DeepSeek API Key</label>
+                  <input
+                    type="password"
+                    value={settings.deepseekApiKey}
+                    onChange={(e) => setSettings({ ...settings, deepseekApiKey: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="sk-..."
+                    dir="ltr"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">OpenAI API Key</label>
+                  <input
+                    type="password"
+                    value={settings.openaiApiKey}
+                    onChange={(e) => setSettings({ ...settings, openaiApiKey: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="sk-..."
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">توکن ربات تلگرام</label>
                   <input
                     type="password"
@@ -293,97 +308,41 @@ function App() {
                     dir="ltr"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">توکن ربات بله (Bale)</label>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">توکن ربات بله</label>
                   <input
                     type="password"
                     value={settings.baleToken || ''}
                     onChange={(e) => setSettings({ ...settings, baleToken: e.target.value })}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    placeholder="123456:bale-..."
+                    placeholder="123456:ABC-..."
                     dir="ltr"
                   />
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-slate-700 space-y-6">
-                <h3 className="text-lg font-bold text-emerald-400">تنظیمات پیشرفته اسپانسر و مدیریت</h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">شناسه عددی تلگرام/بله مالک اصلی (Owner ID)</label>
-                    <input
-                      type="text"
-                      value={settings.ownerId || ''}
-                      onChange={(e) => setSettings({ ...settings, ownerId: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                      placeholder="شناسه عددی سازنده ربات"
-                      dir="ltr"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">شناسه‌های ادمین‌های کمکی (با کاما جدا کنید)</label>
-                    <input
-                      type="text"
-                      value={settings.admins ? settings.admins.join(', ') : ''}
-                      onChange={(e) => setSettings({ ...settings, admins: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                      placeholder="1234567, 9876543"
-                      dir="ltr"
-                    />
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">آیدی ادمین تلگرام (عددی)</label>
+                  <input
+                    type="text"
+                    value={settings.telegramAdminId || ''}
+                    onChange={(e) => setSettings({ ...settings, telegramAdminId: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="12345678"
+                    dir="ltr"
+                  />
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">عنوان دکمه اسپانسر (Sponsor Name)</label>
-                    <input
-                      type="text"
-                      value={settings.sponsorName || ''}
-                      onChange={(e) => setSettings({ ...settings, sponsorName: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                      placeholder="وارد کنید..."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">لینک دکمه اسپانسر (Sponsor URL)</label>
-                    <input
-                      type="text"
-                      value={settings.sponsorUrl || ''}
-                      onChange={(e) => setSettings({ ...settings, sponsorUrl: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                      placeholder="https://t.me/..."
-                      dir="ltr"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">نوع دکمه پشتیبانی</label>
-                    <select
-                      value={settings.supportMode || 'text'}
-                      onChange={(e) => setSettings({ ...settings, supportMode: e.target.value as 'link' | 'text' })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    >
-                      <option value="text">نمایش متن پیام پشتیبانی inside ربات</option>
-                      <option value="link">باز شدن مستقیم لینک آیدی/کانال</option>
-                    </select>
-                  </div>
-
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-slate-400 mb-2">مقدار پشتیبانی (لینک مستقیم یا متن پاسخ)</label>
-                    <textarea
-                      value={settings.supportValue || ''}
-                      onChange={(e) => setSettings({ ...settings, supportValue: e.target.value })}
-                      rows={2}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                      placeholder="https://t.me/your_admin یا توضیحات شماره تماس..."
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">آیدی ادمین بله (عددی)</label>
+                  <input
+                    type="text"
+                    value={settings.baleAdminId || ''}
+                    onChange={(e) => setSettings({ ...settings, baleAdminId: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="12345678"
+                    dir="ltr"
+                  />
                 </div>
               </div>
 
@@ -397,15 +356,6 @@ function App() {
                 </button>
               </div>
             </form>
-          </div>
-        )}
-
-        {activeTab === 'simulator' && (
-          <div className="max-w-7xl">
-            <h2 className="text-2xl font-bold text-white mb-6">شبیه‌ساز هوشمند ربات تلگرام و بله</h2>
-            <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-              <TelegramMock />
-            </div>
           </div>
         )}
 

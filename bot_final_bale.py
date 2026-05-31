@@ -18,9 +18,8 @@ try:
 except Exception:
     settings_data = {}
 
-TOKEN = settings_data.get('telegramToken', 'REPLACE_ME_TOKEN')
+TOKEN = settings_data.get('baleToken', 'REPLACE_ME_BALE_TOKEN')
 GEMINI_API_KEY = settings_data.get('geminiApiKey', '')
-BALE_TOKEN = settings_data.get('baleToken', '')
 
 OWNER_ID = 0
 DATA_FILE = 'bot_data.json'

@@ -19,11 +19,11 @@ try:
 except Exception:
     settings_data = {}
 
-TOKEN = settings_data.get('telegramToken', 'REPLACE_ME_TOKEN')
+TOKEN = settings_data.get('baleToken', 'REPLACE_ME_BALE_TOKEN')
 GEMINI_API_KEY = settings_data.get('geminiApiKey', '')
 
 try:
-    OWNER_ID = int(settings_data.get('telegramAdminId', 0) or 0)
+    OWNER_ID = int(settings_data.get('baleAdminId', 0) or 0)
 except Exception:
     OWNER_ID = 0
 DEEPSEEK_API_KEY = settings_data.get('deepseekApiKey', '')
@@ -1439,9 +1439,9 @@ if __name__ == '__main__':
     load_mobile_db()
     if TOKEN in ('REPLACE_ME_TOKEN', 'REPLACE_ME_BALE_TOKEN', ''):
         import time
-        print("⚠️ Configure token in web interface. Waiting...")
+        print("⚠️ Configure Bale token in web interface. Waiting...")
         while True: time.sleep(3600)
-    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    app = ApplicationBuilder().token(TOKEN).base_url("https://tapi.bale.ai/bot").post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("fixmenu", fix_menu))
     app.add_handler(CallbackQueryHandler(handle_callback))
