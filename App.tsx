@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Upload, RefreshCw, Database, Bot, Clock, ShieldCheck, AlertCircle } from 'lucide-react';
+import TelegramMock from './components/TelegramMock';
 
 interface AppSettings {
   priority: 'AI' | 'EXCEL';
@@ -22,7 +23,7 @@ interface PriceItem {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'upload'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'upload' | 'simulator'>('dashboard');
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [prices, setPrices] = useState<PriceItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -137,6 +138,13 @@ function App() {
           >
             <Database className="w-5 h-5" />
             داشبورد
+          </button>
+          <button
+            onClick={() => setActiveTab('simulator')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'simulator' ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-slate-700/50 text-slate-400'}`}
+          >
+            <Bot className="w-5 h-5" />
+            شبیه‌ساز ربات
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -330,6 +338,15 @@ function App() {
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {activeTab === 'simulator' && (
+          <div className="max-w-7xl">
+            <h2 className="text-2xl font-bold text-white mb-6">شبیه‌ساز هوشمند ربات تلگرام و بله</h2>
+            <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+              <TelegramMock />
+            </div>
           </div>
         )}
 

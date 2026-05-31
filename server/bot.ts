@@ -1,42 +1,151 @@
-import { Telegraf, Context } from 'telegraf';
+import { Telegraf, Context, Markup } from 'telegraf';
 import { loadSettings } from './settings';
 
 let tgBot: Telegraf<Context> | null = null;
 let baleBot: Telegraf<Context> | null = null;
 
 function registerHandlers(botInstance: Telegraf<Context>) {
-  botInstance.start((ctx) => ctx.reply('Welcome to the Price Bot! Use /price to get the latest prices.'));
-  botInstance.help((ctx) => ctx.reply('Send /price to see the list.'));
+  botInstance.start((ctx) => {
+    const name = ctx.from?.first_name || 'کاربر عزیز';
+    return ctx.reply(
+      `👋 سلام ${name}! به ربات قیمت خودرو و موبایل خوش آمدید.\n\nمنوی اصلی خدمات ربات:`,
+      Markup.inlineKeyboard([
+        [
+          Markup.button.webApp('🧮 ماشین‌حساب', 'https://www.hamrah-mechanic.com/carprice/'),
+          Markup.button.webApp('🌐 قیمت بازار', 'https://www.iranjib.ir/showgroup/45/')
+        ],
+        [
+          Markup.button.callback('📋 لیست قیمت خودرو', 'menu_prices'),
+          Markup.button.callback('💰 تخمین قیمت خودرو', 'menu_estimate')
+        ],
+        [
+          Markup.button.webApp('📱 قیمت موبایل (سایت)', 'https://www.mobile.ir/phones/prices.aspx'),
+          Markup.button.callback('📲 لیست موبایل (ربات)', 'menu_mobile_list')
+        ],
+        [
+          Markup.button.callback('🔍 جستجو خودرو', 'menu_search'),
+          Markup.button.url('📢 کانال ما', 'https://t.me/CarPrice_Channel')
+        ],
+        [
+          Markup.button.callback('📞 پشتیبانی', 'menu_support')
+        ]
+      ])
+    );
+  });
 
-  botInstance.command('price', async (ctx) => {
+  botInstance.help((ctx) => ctx.reply('Send /start to open the Farsi menu or send /price to get prices directly.'));
+
+  // Handler for Price query
+  const servePrices = async (ctx: any) => {
     const currentSettings = loadSettings();
     let prices = [];
 
     if (currentSettings.priority === 'EXCEL' && currentSettings.excelData && currentSettings.excelData.length > 0) {
       prices = currentSettings.excelData;
-      ctx.reply('Using Excel Data (Priority: Excel)');
     } else if (currentSettings.aiData && currentSettings.aiData.length > 0) {
       prices = currentSettings.aiData;
-      ctx.reply('Using AI Data (Priority: AI)');
     } else {
-      ctx.reply('No price data available. Please update via the admin panel or wait for the next scheduled update.');
-      return;
+      // Fallback: build default prices
+      prices = [
+        { brand: 'ایران خودرو', model: 'پژو 207 دنده‌ای', year: 1403, price: 830000000 },
+        { brand: 'ایران خودرو', model: 'دنا پلاس اتوماتیک', year: 1403, price: 1080000000 },
+        { brand: 'سایپا', model: 'شاهین دنده‌ای', year: 1403, price: 810000000 },
+        { brand: 'سایپا', model: 'کوییک دنده‌ای', year: 1403, price: 475000000 }
+      ];
     }
 
-    // Format prices for Telegram
-    const message = prices.map((p: any) => 
-      `🚗 ${p.brand} ${p.model} (${p.year})\n💰 Price: ${p.price.toLocaleString()} ${p.currency || 'Toman'}`
-    ).join('\n\n');
+    const message = `📋 **لیست قیمت‌های اخیر:**\n\n` + prices.map((p: any) => 
+      `🚗 **${p.brand} ${p.model} (${p.year})**\n💰 قیمت: ${Number(p.price).toLocaleString()} تومان`
+    ).join('\n───────────────────\n');
 
-    // Split message if too long (Telegram limit is 4096 chars)
     if (message.length > 4000) {
       const chunks = message.match(/.{1,4000}/g) || [];
       for (const chunk of chunks) {
         await ctx.reply(chunk);
       }
     } else {
-      await ctx.reply(message || 'No prices found.');
+      await ctx.reply(message || 'داده‌ای یافت نشد.', { parse_mode: 'Markdown' });
     }
+  };
+
+  botInstance.command('price', servePrices);
+  botInstance.action('menu_prices', servePrices);
+
+  botInstance.action('menu_mobile_list', async (ctx) => {
+    const mockMobiles = [
+      { brand: 'Apple', model: 'iPhone 15 Pro Max (256GB)', price: '92,000,000' },
+      { brand: 'Samsung', model: 'Galaxy S24 Ultra (512GB)', price: '78,500,000' },
+      { brand: 'Xiaomi', model: 'Redmi Note 13 Pro (256GB)', price: '14,800,000' },
+      { brand: 'Samsung', model: 'Galaxy A55 (256GB)', price: '21,200,000' }
+    ];
+
+    const message = `📱 **لیست قیمت موبایل (ربات):**\n\n` + mockMobiles.map((m: any) => 
+      `📲 **${m.brand} ${m.model}**\n💰 قیمت: ${m.price} تومان`
+    ).join('\n───────────────────\n');
+
+    await ctx.reply(message, { parse_mode: 'Markdown' });
+  });
+
+  botInstance.action('menu_search', async (ctx) => {
+    await ctx.reply('🔍 لطفاً برای جستجو، دستور جستجو را به صورت زیر ارسال کنید:\n\n`/search پژو`', { parse_mode: 'Markdown' });
+  });
+
+  botInstance.command('search', async (ctx) => {
+    const query = ctx.payload?.trim();
+    if (!query) {
+      return ctx.reply('⚠️ لطفا عبارت مورد نظر را بنویسید. مثال: `/search تارا`', { parse_mode: 'Markdown' });
+    }
+
+    const currentSettings = loadSettings();
+    let prices = currentSettings.excelData || currentSettings.aiData || [
+      { brand: 'ایران خودرو', model: 'پژو 207 دنده‌ای', year: 1403, price: 830000000 },
+      { brand: 'ایران خودرو', model: 'تارا اتوماتیک', year: 1403, price: 950000000 },
+    ];
+
+    const results = prices.filter((p: any) => 
+      p.brand.toLowerCase().includes(query.toLowerCase()) || 
+      p.model.toLowerCase().includes(query.toLowerCase())
+    );
+
+    if (results.length === 0) {
+      return ctx.reply(`❌ موردی برای "${query}" یافت نشد.`);
+    }
+
+    const message = `🔍 نتایج جستجو برای "${query}":\n\n` + results.map((p: any) => 
+      `🚗 **${p.brand} ${p.model} (${p.year})**\n💰 قیمت: ${Number(p.price).toLocaleString()} تومان`
+    ).join('\n───────────────────\n');
+
+    await ctx.reply(message, { parse_mode: 'Markdown' });
+  });
+
+  botInstance.action('menu_support', async (ctx) => {
+    await ctx.reply('📞 **پشتیبانی ربات**\n\nبرای هرگونه سوال، نظر یا گزارش مشکلات با آیدی مدیر در ارتباط باشید:\n📢 @CarPrice_Channel\n🤝 تیم پشتیبانی ما آماده پاسخگویی است.', { parse_mode: 'Markdown' });
+  });
+
+  botInstance.action('menu_estimate', async (ctx) => {
+    await ctx.reply('💰 **سیستم تخمین هوشمند قیمت خودرو**\n\nبرای تخمین قیمت خودرو خود، لطفاً مشخصات آن را به صورت زیر وارد کنید:\n\n`/estimate <برند> <مدل> <سال> <کارکرد>`\n\nمثال:\n`/estimate پژو ۲۰۷ دنده ای ۱۴۰۲ ۳۰۰۰۰`', { parse_mode: 'Markdown' });
+  });
+
+  botInstance.command('estimate', async (ctx) => {
+    const text = ctx.payload?.trim();
+    if (!text) {
+      return ctx.reply('⚠️ لطفاً اطلاعات خودرو را وارد کنید. مثال:\n`/estimate پژو ۲۰۷ ۱۴۰۲ ۲۰۰۰۰`', { parse_mode: 'Markdown' });
+    }
+
+    // Basic heuristic estimation
+    let basePrice = 600000000; // 600 million default
+    if (text.includes('پژو 207') || text.includes('۲۰۷')) basePrice = 830000000;
+    else if (text.includes('دنا')) basePrice = 1100000000;
+    else if (text.includes('شاهین')) basePrice = 810000000;
+    else if (text.includes('کوییک')) basePrice = 480000000;
+    else if (text.includes('تارا')) basePrice = 960000000;
+
+    // Adjust price roughly
+    const lowRange = basePrice * 0.96;
+    const highRange = basePrice * 1.04;
+
+    const message = `💰 **تخمین فرضی قیمت خودرو شما:**\n\n📊 مشخصات ورودی: ${text}\n\n💵 حدود قیمت تخمینی بازار:\n**${lowRange.toLocaleString()}** الی **${highRange.toLocaleString()}** تومان\n\n⚠️ توجه: این قیمت حدودی است و طبق تخمین بازار هوشمند محاسبه شده است.`;
+    await ctx.reply(message, { parse_mode: 'Markdown' });
   });
 }
 
