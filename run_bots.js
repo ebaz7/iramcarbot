@@ -10,17 +10,13 @@ const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 console.log("🚀 Starting Multi-Bot Manager (Telegram & Bale)...");
 
 try {
+    execSync('python3 -c "import jdatetime"', { stdio: 'ignore' });
+} catch {
     try {
-        execSync('python3 -c "import jdatetime"', { stdio: 'ignore' });
+        execSync('python -c "import jdatetime"', { stdio: 'ignore' });
     } catch {
-        console.log("📦 Installing Python dependencies...");
-        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-        console.log("Downloading pip...");
-        execSync(`curl -sS https://bootstrap.pypa.io/get-pip.py | ${pythonCmd}`);
-        execSync(`${pythonCmd} -m pip install -r requirements.txt`, { stdio: 'inherit' });
+        console.log("⚠️ Make sure you have installed python dependencies: pip install -r requirements.txt");
     }
-} catch (e) {
-    console.error("Failed to check or install python dependencies: " + e.message);
 }
 
 const bots = {};

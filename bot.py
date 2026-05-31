@@ -8,6 +8,8 @@ import re
 import jdatetime
 import pandas as pd
 import requests
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, BotCommand, MenuButtonCommands
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
@@ -1439,7 +1441,7 @@ if __name__ == '__main__':
     load_mobile_db()
     if TOKEN in ('REPLACE_ME_TOKEN', 'REPLACE_ME_BALE_TOKEN', ''):
         import time
-        print("⚠️ Configure token in web interface. Waiting...")
+        print("Please configure token in web interface. Waiting...")
         while True: time.sleep(3600)
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
